@@ -14,7 +14,7 @@ const rules = (root) => errors(root).map(e => `${e.rule}: ${e.message}`)
 const withTest = (line) => ({ 'docs/architecture/store/secrets.md': edit(COMPONENT, '- Test: `src/secrets.test.ts`', line) })
 
 const git = (root, ...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: root, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
-const indexWithSources = (sources) => `---\ntype: docs-index\nworkflow: 1.0.0\nsources: [${sources}]\n---\n\n# Docs\n\n[store](architecture/store/README.md), [rfcs](rfcs/README.md)\n`
+const indexWithSources = (sources) => `---\ntype: docs-index\nworkflow: 1.0.0\nlevels: [unit, e2e]\nsources: [${sources}]\n---\n\n# Docs\n\n[store](architecture/store/README.md), [rfcs](rfcs/README.md)\n`
 const REMOVED = '#### ~~SEC-3 · Old~~\n\nGone.\n\n- Test: unverified\n- State: removed (RFC-0001)\n\n#### SEC-2 · Planned cleanup'
 
 /** A project whose docs index sets `sources`, in a git repository that tracks every file. */
@@ -55,6 +55,15 @@ describe('check-docs', () => {
     assert.deepEqual(rules(project(withTest('- Test: `src/secrets.test.ts`, `src/gone.test.ts`'))), ['test: src/gone.test.ts does not exist'])
     const other = project({ 'src/secrets.test.ts': "test('SEC-12: something else', () => {})\n" })
     assert.deepEqual(rules(other), ['test: src/secrets.test.ts has no test carrying SEC-1'])
+  })
+
+  test('a statement names its levels, each declared in docs/README.md', () => {
+    const levelLine = (line) => ({ 'docs/architecture/store/secrets.md': edit(COMPONENT, '- Test: `src/secrets.test.ts`\n- Level: unit', `- Test: \`src/secrets.test.ts\`${line}`) })
+    assert.deepEqual(rules(project(levelLine(''))), ["statement: SEC-1 has no '- Level:' line"])
+    assert.deepEqual(rules(project(levelLine('\n- Level: unit, smoke'))), ['statement: SEC-1: level smoke is not declared in docs/README.md levels'])
+    assert.deepEqual(rules(project(levelLine('\n- Level: Unit'))), ["statement: SEC-1: 'Unit' is not a level name"])
+    const noLevels = project({ 'docs/README.md': '---\ntype: docs-index\nworkflow: 1.0.0\n---\n\n# Docs\n\n[store](architecture/store/README.md), [rfcs](rfcs/README.md)\n' })
+    assert.deepEqual(rules(noLevels), ["front-matter: missing key 'levels'"])
   })
 
   test("'none yet' is only for new statements", () => {

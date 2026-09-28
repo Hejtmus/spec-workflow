@@ -23,11 +23,11 @@ const DESIGN_SECTIONS = {
 const CRITIQUE_PARAGRAPHS = ['**Pros**', '**Cons & trade-offs**', '**Blindspots & missed edge cases**']
 const KEYS = {
   workflow: { required: ['version'], optional: [] },
-  'docs-index': { required: ['workflow'], optional: ['sources'] },
+  'docs-index': { required: ['workflow', 'levels'], optional: ['sources'] },
   architecture: { required: ['title', 'codes', 'verified'], optional: ['prefix', 'conforms'] },
   'architecture-index': { required: ['title', 'prefix', 'codes', 'verified'], optional: ['conforms'] },
   'rfc-index': { required: [], optional: [] },
-  rfc: { required: ['number', 'title', 'status', 'commit-subject'], optional: ['commits', 'depends', 'architecture', 'sections'] }
+  rfc: { required: ['number', 'title', 'status', 'commit-subject'], optional: ['commits', 'depends', 'architecture', 'sections', 'changes'] }
 }
 const RFC_STATUSES = ['draft', 'implemented', 'withdrawn']
 const STATEMENT_HEADING = /^(~~)?([A-Z]+)-(\d+) · (.+?)(~~)?$/
@@ -35,6 +35,9 @@ const STATE_VALUE = /^(new \((RFC-\d{4}|no RFC yet)\)|removed \(RFC-\d{4}\))$/
 const TEST_FILES = /^`[^`]+`(, `[^`]+`)*$/
 const TEST_UNVERIFIED = /^unverified( \(.+\))?$/
 const TEST_PARTIAL = / \(unverified: .+\)$/
+const CHANGE_KINDS = ['breaking', 'added', 'compatible', 'editorial']
+const CHANGE = /^([A-Z]+-\d+) (\S+)$/
+const LEVEL_NAME = /^[a-z][a-z0-9-]*$/
 
 // ─── Reporting ──────────────────────────────────────────────────────────────
 
@@ -176,6 +179,18 @@ function checkUniqueDeclarations (docs, report) {
   }
 }
 
+/** The `levels` of docs/README.md (WORKFLOW §6.2); `null` when there is none to check against. */
+function declaredLevels (docs, report) {
+  const index = docs.find(d => d.front?.type === 'docs-index')
+  const levels = index?.front?.levels
+  if (levels === undefined) return null
+  if (!Array.isArray(levels) || levels.length === 0 || levels.some(l => !LEVEL_NAME.test(String(l)))) {
+    report.error(index.path, 1, 'front-matter', 'levels must be a non-empty list of lowercase level names')
+    return null
+  }
+  return levels.map(String)
+}
+
 function checkWorkflowVersion (docs, report) {
   const workflow = docs.find(d => d.front?.type === 'workflow')
   const index = docs.find(d => d.front?.type === 'docs-index')
@@ -243,7 +258,7 @@ function statementFields (doc, heading) {
     const at = lines.findIndex(l => l.startsWith(`- ${name}:`))
     return at < 0 ? undefined : { value: lines[at].slice(name.length + 3).trim(), line: start + at }
   }
-  return { test: field('Test'), state: field('State') }
+  return { test: field('Test'), state: field('State'), level: field('Level') }
 }
 
 /** The `- Test:` value (WORKFLOW §6.1) as `{ kind, files }`, or `null` when it has none of the forms. */
@@ -262,6 +277,12 @@ const idToken = (id) => new RegExp(`(?<![A-Za-z0-9-])${id}(?![0-9])`)
 
 const isFile = (path) => existsSync(path) && statSync(path).isFile()
 
+/** The statement's normative text: its body without the `Test:`, `State:` and `Level:` lines, whitespace collapsed. */
+function statementText (doc, heading) {
+  const { start, end } = sectionLines(doc, heading)
+  return doc.raw.slice(start, end).filter(line => !/^- (Test|State|Level):/.test(line)).join(' ').replace(/\s+/g, ' ').trim()
+}
+
 function checkTestLine (doc, heading, id, test, state, report) {
   if (test === undefined || test.value === '') return report.error(doc.path, heading.line + 1, 'statement', `${id} has no '- Test:' line`)
   const parsed = parseTest(test.value)
@@ -279,25 +300,37 @@ function checkTestFiles (doc, statement, testLine, root, report) {
   }
 }
 
-function checkStatement (doc, heading, root, report) {
+/** The levels of a `- Level:` line (WORKFLOW §6.1), each one declared in docs/README.md. */
+function checkLevelLine (doc, heading, id, level, declared, report) {
+  if (level === undefined || level.value === '') { report.error(doc.path, heading.line + 1, 'statement', `${id} has no '- Level:' line`); return [] }
+  const levels = level.value.split(',').map(name => name.trim())
+  for (const name of levels) {
+    if (!LEVEL_NAME.test(name)) report.error(doc.path, level.line + 1, 'statement', `${id}: '${name}' is not a level name`)
+    else if (declared !== null && !declared.includes(name)) report.error(doc.path, level.line + 1, 'statement', `${id}: level ${name} is not declared in docs/README.md levels`)
+  }
+  return levels
+}
+
+function checkStatement (doc, heading, context, report) {
   const match = STATEMENT_HEADING.exec(heading.text)
   if (match === null) return report.error(doc.path, heading.line + 1, 'statement', `'${heading.text}' is not '<CODE>-<n> · <title>'`)
   const [, struckOpen, code, number] = match
   const id = `${code}-${number}`
   if (!(doc.front.codes ?? []).includes(code)) report.error(doc.path, heading.line + 1, 'statement', `code ${code} is not declared in codes`)
-  const { test, state } = statementFields(doc, heading)
+  const { test, state, level } = statementFields(doc, heading)
   if (state !== undefined && !STATE_VALUE.test(state.value)) report.error(doc.path, state.line + 1, 'statement', `invalid State '${state.value}'`)
   if ((struckOpen !== undefined) !== (stateOf(state) === 'removed')) report.error(doc.path, heading.line + 1, 'statement', 'a removed statement is struck through, and only a removed one')
-  const statement = { id, doc, line: heading.line, state: stateOf(state), test: checkTestLine(doc, heading, id, test, state, report) }
-  if (statement.test?.kind === 'files' && statement.state !== 'removed') checkTestFiles(doc, statement, test.line, root, report)
+  const statement = { id, doc, line: heading.line, state: stateOf(state), text: statementText(doc, heading), test: checkTestLine(doc, heading, id, test, state, report), levels: [] }
+  if (statement.state !== 'removed') statement.levels = checkLevelLine(doc, heading, id, level, context.levels, report)
+  if (statement.test?.kind === 'files' && statement.state !== 'removed') checkTestFiles(doc, statement, test.line, context.root, report)
   return statement
 }
 
-function checkSpecification (doc, specification, root, report) {
+function checkSpecification (doc, specification, context, report) {
   const statements = doc.headings.filter(h => h.level === 4 && h.line > specification.line && h.line < sectionLines(doc, specification).end)
   const { lines } = sectionLines(doc, specification)
   if (statements.length === 0 && !lines.some(l => l.trim() === 'None.')) report.error(doc.path, specification.line + 1, 'statement', "a Specification without statements says 'None.'")
-  return statements.map(h => checkStatement(doc, h, root, report)).filter(s => s !== undefined)
+  return statements.map(h => checkStatement(doc, h, context, report)).filter(s => s !== undefined)
 }
 
 // ─── IDs ────────────────────────────────────────────────────────────────────
@@ -438,12 +471,12 @@ const isArchitecture = (doc) => doc.front?.type === 'architecture' || doc.front?
 const conforms = (doc) => isArchitecture(doc) && doc.front.conforms !== false
 
 /** Statements of the conforming documents, by ID: `{ id, doc, line, state, test }`. */
-function checkArchitecture (docs, root, report) {
+function checkArchitecture (docs, context, report) {
   const statements = new Map()
   for (const doc of docs.filter(conforms)) {
     const parts = checkStructure(doc, report)
     if (parts.Specification === undefined) continue
-    for (const s of checkSpecification(doc, parts.Specification, root, report)) {
+    for (const s of checkSpecification(doc, parts.Specification, context, report)) {
       if (statements.has(s.id)) report.error(doc.path, s.line + 1, 'statement', `${s.id} is already defined in ${relative(dirname(doc.path), statements.get(s.id).doc.path)}`)
       else statements.set(s.id, s)
     }
@@ -523,8 +556,20 @@ function checkSourceReferences (root, docsDir, sources, ids, report) {
   }
 }
 
-function checkRfc (doc, report) {
+/** Each item of `changes` is `<statement> <kind>`, naming a defined statement (WORKFLOW §11.3). */
+function checkChanges (doc, statements, report) {
+  if (doc.front.changes === undefined) return
+  if (!Array.isArray(doc.front.changes)) return report.error(doc.path, 1, 'rfc', 'changes must be a list')
+  for (const item of doc.front.changes) {
+    const match = CHANGE.exec(String(item))
+    if (match === null || !CHANGE_KINDS.includes(match[2])) report.error(doc.path, 1, 'rfc', `change '${item}' is not '<statement> <${CHANGE_KINDS.join('|')}>'`)
+    else if (!statements.has(match[1])) report.error(doc.path, 1, 'rfc', `change ${match[1]} names no defined statement`)
+  }
+}
+
+function checkRfc (doc, statements, report) {
   if (doc.front.sections !== 'legacy') { checkRfcSections(doc, report); checkRfcCritique(doc, report) }
+  checkChanges(doc, statements, report)
   checkCommits(doc, report)
 }
 
@@ -543,15 +588,16 @@ function analyze (docsDir) {
   checkUniqueDeclarations(docs, report)
   checkWorkflowVersion(docs, report)
   const root = dirname(resolve(docsDir))
-  const statements = checkArchitecture(docs, root, report)
+  const levels = declaredLevels(docs, report)
+  const statements = checkArchitecture(docs, { root, levels }, report)
   const { prefixes, definitions } = checkIds(docs, statements, report)
   const codes = declaredCodes(docs)
   checkSourceReferences(root, resolve(docsDir), sourcesOf(docs, root, report), { prefixes, definitions, statements, codes: codes.conforming }, report)
-  for (const doc of docs.filter(d => d.front?.type === 'rfc')) checkRfc(doc, report)
+  for (const doc of docs.filter(d => d.front?.type === 'rfc')) checkRfc(doc, statements, report)
   checkRfcIndex(docs, report)
   const cache = new Map()
   for (const doc of docs.filter(d => d.front?.type !== 'workflow')) checkLinks(doc, cache, report)
-  return { report, statements, codes }
+  return { report, docs, statements, codes, levels: levels ?? [] }
 }
 
 const check = (docsDir) => analyze(docsDir).report
@@ -563,6 +609,6 @@ function main () {
   process.exit(errors > 0 ? 1 : 0)
 }
 
-export { analyze, check, createReport, printReport, slug, parseFrontMatter }
+export { analyze, check, createReport, printReport, sectionLines, slug, parseFrontMatter, CHANGE }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) main()

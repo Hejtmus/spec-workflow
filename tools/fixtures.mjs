@@ -56,12 +56,14 @@ None.
 \`getSecret\` returns \`undefined\` only on NOT_FOUND.
 
 - Test: \`src/secrets.test.ts\`
+- Level: unit
 
 #### SEC-2 · Planned cleanup
 
 Old versions are destroyed.
 
 - Test: none yet
+- Level: unit, e2e
 - State: new (RFC-0001)
 `
 
@@ -172,7 +174,7 @@ export function project (overrides = {}) {
   roots.push(root)
   const files = {
     'docs/WORKFLOW.md': WORKFLOW,
-    'docs/README.md': '---\ntype: docs-index\nworkflow: 1.0.0\n---\n\n# Docs\n\n[store](architecture/store/README.md), [rfcs](rfcs/README.md)\n',
+    'docs/README.md': '---\ntype: docs-index\nworkflow: 1.0.0\nlevels: [unit, e2e]\n---\n\n# Docs\n\n[store](architecture/store/README.md), [rfcs](rfcs/README.md)\n',
     'docs/architecture/store/README.md': INDEX,
     'docs/architecture/store/secrets.md': COMPONENT,
     'docs/rfcs/README.md': '---\ntype: rfc-index\n---\n\n# RFCs\n\n| RFC | Title |\n| :-- | :-- |\n| [0001](0001-cleanup.md) | Cleanup |\n',

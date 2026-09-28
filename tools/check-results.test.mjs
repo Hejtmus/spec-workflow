@@ -2,7 +2,7 @@ import { test, describe, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { checkResults, readTestCases } from './check-results.mjs'
+import { checkResults, readTestCases, parseReport } from './check-results.mjs'
 import { COMPONENT, edit, project, removeProjects } from './fixtures.mjs'
 
 afterEach(removeProjects)
@@ -12,12 +12,18 @@ const passed = (name) => `<testcase name="${name}" classname="secrets" time="0.0
 const failed = (name) => `<testcase name="${name}" classname="secrets"><failure message="boom">stack</failure></testcase>`
 const skipped = (name) => `<testcase name="${name}" classname="secrets"><skipped type="skipped"/></testcase>`
 
-/** The checker's entries for `root`, given one report with `xml`. */
-function results (root, xml) {
-  const path = join(root, 'report.xml')
-  writeFileSync(path, xml)
-  return checkResults(join(root, 'docs'), [path]).report.entries.map(e => `${e.level}: ${e.message}`)
+/** The checker's entries for `root`, given reports by level (`{ unit: xml }`), and the deferred levels. */
+function resultsByLevel (root, xmlByLevel, deferred = []) {
+  const reports = Object.entries(xmlByLevel).map(([level, xml]) => {
+    const path = join(root, `${level}.xml`)
+    writeFileSync(path, xml)
+    return { level, path }
+  })
+  return checkResults(join(root, 'docs'), reports, deferred).report.entries.map(e => `${e.level}: ${e.message}`)
 }
+
+const results = (root, xml) => resultsByLevel(root, { unit: xml })
+const BOTH_LEVELS = edit(COMPONENT, '- Test: \`src/secrets.test.ts\`\n- Level: unit', '- Test: \`src/secrets.test.ts\`\n- Level: unit, e2e')
 
 const REMOVED = '#### ~~SEC-3 · Old~~\n\nGone.\n\n- Test: unverified\n- State: removed (RFC-0001)\n\n#### SEC-2 · Planned cleanup'
 
@@ -27,12 +33,12 @@ describe('check-results', () => {
   })
 
   test('a failing test, or no passing test, is an error', () => {
-    assert.deepEqual(results(project(), junit(passed('SEC-1: reads'), failed('SEC-1: propagates'))), ["error: SEC-1: test 'SEC-1: propagates' failed"])
-    assert.deepEqual(results(project(), junit(passed('unrelated'))), ['error: SEC-1 has no passing test carrying its ID'])
+    assert.deepEqual(results(project(), junit(passed('SEC-1: reads'), failed('SEC-1: propagates'))), ["error: SEC-1: unit test 'SEC-1: propagates' failed"])
+    assert.deepEqual(results(project(), junit(passed('unrelated'))), ['error: SEC-1 has no passing unit test carrying its ID'])
   })
 
   test('a skipped test does not count as passing', () => {
-    assert.deepEqual(results(project(), junit(skipped('SEC-1: reads'))), ['error: SEC-1 has no passing test carrying its ID'])
+    assert.deepEqual(results(project(), junit(skipped('SEC-1: reads'))), ['error: SEC-1 has no passing unit test carrying its ID'])
   })
 
   test('a test carrying an undefined or removed ID is an error', () => {
@@ -50,6 +56,24 @@ describe('check-results', () => {
     const legacy = '---\ntype: architecture\ntitle: Old\ncodes: [OLD]\nconforms: false\n---\n\n# Old\n'
     const root = project({ 'docs/architecture/old.md': legacy })
     assert.deepEqual(results(root, junit(passed('SEC-1: reads'), passed('OLD-4: legacy'), passed('parses ISO-8601 dates'))), [])
+  })
+
+  test('each level a statement lists needs a passing test of that level', () => {
+    const root = project({ 'docs/architecture/store/secrets.md': BOTH_LEVELS })
+    assert.deepEqual(resultsByLevel(root, { unit: junit(passed('SEC-1: reads')) }), ['error: SEC-1 has no passing e2e test carrying its ID'])
+    assert.deepEqual(resultsByLevel(root, { unit: junit(passed('SEC-1: reads')), e2e: junit(passed('SEC-1: reads for real')) }), [])
+  })
+
+  test('a deferred level is a warning, and a report of an undeclared level an error', () => {
+    const root = project({ 'docs/architecture/store/secrets.md': BOTH_LEVELS })
+    assert.deepEqual(resultsByLevel(root, { unit: junit(passed('SEC-1: reads')) }, ['e2e']), ['warning: SEC-1: its e2e tests are deferred'])
+    assert.deepEqual(resultsByLevel(project(), { unit: junit(passed('SEC-1: reads')), smoke: junit() }), ['error: level smoke is not declared in docs/README.md levels'])
+    assert.deepEqual(resultsByLevel(project(), { unit: junit(passed('SEC-1: reads')) }, ['nightly']), ['error: deferred level nightly is not declared in docs/README.md levels'])
+  })
+
+  test('a report argument names its level', () => {
+    assert.deepEqual(parseReport('e2e=reports/e2e.xml'), { level: 'e2e', path: 'reports/e2e.xml' })
+    assert.equal(parseReport('reports/e2e.xml'), null)
   })
 
   test('JUnit names are decoded, and quoted > does not end a test case', () => {

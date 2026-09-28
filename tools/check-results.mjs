@@ -2,9 +2,9 @@
 /**
  * Spec Workflow test results checker (WORKFLOW.md §6.2, §9). No dependencies: Node ≥ 20.
  *
- *   node docs/tools/check-results.mjs <docsDir> <report.xml> …
+ *   node docs/tools/check-results.mjs <docsDir> <level>=<report.xml> … [--defer <level>] …
  *
- * Reads the JUnit XML reports of a test run. Prints `path:line: level: rule: message` for every error
+ * Reads the JUnit XML reports of a test run, each labeled with its test level. Prints `path:line: level: rule: message` for every error
  * and warning, and exits 1 when there is an error.
  */
 import { readFileSync, existsSync } from 'node:fs'
@@ -37,12 +37,13 @@ function outcome (body) {
 
 const lineAt = (text, index) => text.slice(0, index).split('\n').length
 
-/** Every `<testcase>` of a report as `{ name, outcome, file, line }`. */
-function readTestCases (path) {
+/** Every `<testcase>` of a report as `{ name, outcome, level, file, line }`. */
+function readTestCases (path, level) {
   const xml = readFileSync(path, 'utf-8')
   return [...xml.matchAll(TESTCASE)].map(match => ({
     name: attributes(match[1]).name ?? '',
     outcome: outcome(match[2] ?? ''),
+    level,
     file: path,
     line: lineAt(xml, match.index)
   }))
@@ -77,36 +78,60 @@ function checkCarriedId (testCase, id, statement, report) {
   else if (statement.test?.kind === 'unverified') report.warning(statement.doc.path, statement.line + 1, 'result', `${id} says unverified, but test '${testCase.name}' carries its ID`)
 }
 
-/** A current statement that names test files has a passing test carrying its ID, and no failing one. */
-function checkStatement (statement, cases, report) {
+const passesAt = (cases, level) => cases.some(c => c.level === level && c.outcome === 'passed')
+
+/** A current statement that names test files has, for each of its levels, a passing test carrying its ID, and no failing one. */
+function checkStatement (statement, cases, deferred, report) {
   const at = [statement.doc.path, statement.line + 1, 'result']
-  for (const failed of cases.filter(c => c.outcome === 'failed')) report.error(...at, `${statement.id}: test '${failed.name}' failed`)
-  if (!cases.some(c => c.outcome === 'passed')) report.error(...at, `${statement.id} has no passing test carrying its ID`)
+  for (const failed of cases.filter(c => c.outcome === 'failed')) report.error(...at, `${statement.id}: ${failed.level} test '${failed.name}' failed`)
+  for (const level of statement.levels.filter(l => !passesAt(cases, l))) {
+    if (deferred.includes(level)) report.warning(...at, `${statement.id}: its ${level} tests are deferred`)
+    else report.error(...at, `${statement.id} has no passing ${level} test carrying its ID`)
+  }
+}
+
+/** Every report, and every deferred level, names a level that docs/README.md declares. */
+function checkReportLevels (docsDir, reports, deferred, levels, report) {
+  for (const { level, path } of reports) if (!levels.includes(level)) report.error(path, 1, 'result', `level ${level} is not declared in docs/README.md levels`)
+  for (const level of deferred.filter(l => !levels.includes(l))) report.error(docsDir, 1, 'result', `deferred level ${level} is not declared in docs/README.md levels`)
 }
 
 const isChecked = (statement) => statement.state === 'current' && statement.test?.kind === 'files'
+const isVerified = (statement, cases) => statement.levels.every(level => passesAt(cases, level)) && !cases.some(c => c.outcome === 'failed')
 
-function checkResults (docsDir, reportPaths) {
-  const { statements, codes } = analyze(docsDir)
+/** Checks the `{ level, path }` reports of a run against the statements; `deferred` lists the levels the run did not run. */
+function checkResults (docsDir, reports, deferred = []) {
+  const { statements, codes, levels } = analyze(docsDir)
   const report = createReport()
-  const cases = reportPaths.flatMap(readTestCases)
+  checkReportLevels(docsDir, reports, deferred, levels, report)
+  const cases = reports.flatMap(({ level, path }) => readTestCases(path, level))
   const byId = indexTestCases(cases, statements, codes, report)
   const checked = [...statements.values()].filter(isChecked)
-  for (const statement of checked) checkStatement(statement, byId.get(statement.id) ?? [], report)
-  return { report, checked: checked.length, cases: cases.length }
+  for (const statement of checked) checkStatement(statement, byId.get(statement.id) ?? [], deferred, report)
+  const verified = new Set(checked.filter(s => isVerified(s, byId.get(s.id) ?? [])).map(s => s.id))
+  return { report, checked: checked.length, cases, verified, carrying: new Set([...byId.values()].flat()).size }
+}
+
+/** `<level>=<path>` as `{ level, path }`; `null` without a level. */
+function parseReport (arg) {
+  const match = /^([a-z][a-z0-9-]*)=(.+)$/.exec(arg ?? '')
+  return match === null ? null : { level: match[1], path: match[2] }
 }
 
 function main () {
-  const [docsArg, ...reportArgs] = process.argv.slice(2)
-  if (docsArg === undefined || reportArgs.length === 0) { console.error('usage: check-results.mjs <docsDir> <report.xml> …'); process.exit(2) }
-  const missing = [docsArg, ...reportArgs].filter(path => !existsSync(path))
+  const usage = 'usage: check-results.mjs <docsDir> <level>=<report.xml> … [--defer <level>] …'
+  const [docsArg, ...args] = process.argv.slice(2)
+  const deferred = args.flatMap((arg, i) => (args[i - 1] === '--defer' ? [arg] : []))
+  const reports = args.filter((arg, i) => arg !== '--defer' && args[i - 1] !== '--defer').map(parseReport)
+  if (docsArg === undefined || reports.length === 0 || reports.includes(null)) { console.error(usage); process.exit(2) }
+  const missing = [docsArg, ...reports.map(r => r.path)].filter(path => !existsSync(path))
   if (missing.length > 0) { console.error(`${missing.join(', ')} does not exist`); process.exit(2) }
-  const { report, checked, cases } = checkResults(resolve(docsArg), reportArgs.map(p => resolve(p)))
-  console.log(`${checked} statement(s) checked against ${cases} test case(s)`)
+  const { report, checked, cases } = checkResults(resolve(docsArg), reports.map(r => ({ ...r, path: resolve(r.path) })), deferred)
+  console.log(`${checked} statement(s) checked against ${cases.length} test case(s)`)
   const errors = printReport(report, process.cwd())
   process.exit(errors > 0 ? 1 : 0)
 }
 
-export { checkResults, readTestCases }
+export { checkResults, readTestCases, parseReport }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) main()

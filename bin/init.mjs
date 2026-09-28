@@ -15,6 +15,8 @@ const VENDORED = [
   ['WORKFLOW.md', 'WORKFLOW.md'],
   ['tools/check-docs.mjs', 'tools/check-docs.mjs'],
   ['tools/check-results.mjs', 'tools/check-results.mjs'],
+  ['tools/check-release.mjs', 'tools/check-release.mjs'],
+  ['tools/record.mjs', 'tools/record.mjs'],
   ...readdirSync(join(HOME, 'templates')).map(name => [`templates/${name}`, `templates/${name}`])
 ]
 const SCAFFOLDED = [
@@ -70,9 +72,12 @@ function nextSteps (update, previous) {
   return [
     'Add to package.json scripts: "docs:check": "node docs/tools/check-docs.mjs docs"',
     'Run it in CI, and before every commit that touches docs/. CI checks out the full history (fetch-depth: 0).',
-    'In CI, after the tests, run: node docs/tools/check-results.mjs docs <JUnit XML reports of the tests>',
+    'In CI, after the build and the tests (JUnit XML), run: node docs/tools/record.mjs docs --junit <level>=<report.xml> … --build passed|failed, and keep verification.json (WORKFLOW §11.1).',
+    'Release on every push to main: every package version with no release tag, only when verification.json passed (WORKFLOW §11.4).',
+    'Run CI only on pushes to main and pull requests into it; require its checks before a pull request merges; pin third-party CI steps to commit hashes; give each job the least permissions.',
     'Allow only merge commits or fast-forwards into the main branch: no squash or rebase merges (WORKFLOW §8.3).',
     'List the source directories in docs/README.md, for example `sources: [src]`, so references from code are checked (WORKFLOW §6.4).',
+    'Declare the test levels in docs/README.md (`levels: [unit, integration, e2e]`), and give every statement a `- Level:` line (WORKFLOW §6.2).',
     'Give existing documents front matter; mark old ones `conforms: false` or `sections: legacy`.',
     'Point the project\'s agent instructions (CLAUDE.md, AGENTS.md) at docs/WORKFLOW.md: see AGENTS.md in the Spec Workflow repository.'
   ]
