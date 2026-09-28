@@ -1,6 +1,6 @@
 ---
 type: workflow
-version: 2.1.0
+version: 2.2.0
 ---
 
 # Spec Workflow
@@ -80,7 +80,7 @@ Every document starts with front matter: `---` lines around `key: value` pairs. 
 
 | `type` | Keys |
 | :-- | :-- |
-| `docs-index` | `workflow`: the version of this file that the project follows |
+| `docs-index` | `workflow`: the version of this file that the project follows; `sources`: the directories, from the repository root, whose files are checked for references (§6.4) |
 | `architecture` | `title`; `prefix`: the ID prefix, unique in the project; `codes`: statement codes, unique in the project; `verified`: the commit at which the *current* text was last checked against the code; `conforms`: `false` only for a document written before the project adopted the workflow |
 | `architecture-index` | the same keys as `architecture`. The directory's documents share its `prefix` and its register. |
 | `rfc-index` | none: the list of RFCs, `rfcs/README.md` |
@@ -214,6 +214,10 @@ architecture document, which must hold it anyway (principle 2), not in a comment
   smaller function, or a Design entry, which the comment then references.
 - Comments that tools read, such as a license header, a type annotation or a linter directive, are
   not explanations.
+- Every reference resolves. When `docs/README.md` lists `sources`, the documentation checker reads
+  every file that git tracks under them, outside `docs/`, and skips binary files. Each token with a
+  declared prefix or statement code, whether in a comment, a string or a test title, MUST be
+  defined. A statement it names MUST NOT be removed. The check needs a git repository.
 
 ## 7. IDs
 
@@ -277,7 +281,8 @@ checks out the full history.
 3. statements: heading format, a code the document declares, no duplicates, the form of the `Test:` line, each named test file existing and containing the ID, valid `State:` values, `none yet` only for **New** statements;
 4. IDs: defined once, every mention defined, registers complete and not stale;
 5. RFCs: file name against `number`, required sections and critique paragraphs unless `sections: legacy`, `commits` present and in the history of `HEAD` when `implemented`, every RFC listed in `rfcs/README.md`;
-6. links: every relative link resolves to a file, and every `#anchor` to a heading.
+6. links: every relative link resolves to a file, and every `#anchor` to a heading;
+7. references from code: when `sources` is set, every ID and statement named in a tracked source file is defined, and no named statement is removed (§6.4).
 
 A document with `conforms: false` is checked only for front matter and links, and is reported as a
 warning until it is restructured.
