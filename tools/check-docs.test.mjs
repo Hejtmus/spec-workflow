@@ -44,7 +44,7 @@ None.
 
 ### Verification
 
-**XS1, a spike.** Not run.
+- **XS1, a spike.** Not run.
 
 ## Specification
 

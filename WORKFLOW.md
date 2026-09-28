@@ -122,7 +122,7 @@ external documentation (named), or not yet verified.
 - **Author decisions** (`U`) are rows of the Decisions table: `| GU1 | … | … |`.
 - **Design decisions** (`D`) are paragraphs that start with `**GD1. Title.**`, followed by `*Why:*` and `*Cost:*`.
 - **Findings** (`F`) are rows of the Findings table: `| GF1 | finding | state |`. A fixed finding keeps its row, marked *History.*
-- **Verifications** (`S`) start with `**GS1, …**` or are rows of a table: `| GS1a | … |`.
+- **Verifications** (`S`) start with `**GS1, …**`, as a paragraph or a list item, or are rows of a table: `| GS1a | … |`.
 - **Open questions** (`Q`) are rows of an `Open questions` table: `| GQ1 | question | recommendation |`.
 
 ## 6. Specification statements

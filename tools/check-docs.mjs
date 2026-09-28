@@ -260,7 +260,7 @@ function collectDefinitions (doc, prefixes, report, definitions) {
   if (prefixes.size === 0) return
   const pattern = idPattern(prefixes)
   const row = new RegExp(`^\\|\\s*(${pattern})\\s*\\|`)
-  const bold = new RegExp(`^\\*\\*(${pattern})[.,:\\s]`)
+  const bold = new RegExp(`^(?:- )?\\*\\*(${pattern})[.,:\\s]`)
   const register = registerRange(doc)
   doc.lines.forEach((line, i) => {
     if (register !== null && i >= register.start && i < register.end) return
