@@ -51,6 +51,7 @@ The normative behavior. Plain present tense means MUST; **SHOULD** and **MAY** i
 weaker requirements.
 
 - Test: `<test file, from the repository root>`
+- Level: <levels from docs/README.md, such as unit, e2e>
 
 <!-- Each test that checks this statement carries `<CODE>-1` in its title. -->
 

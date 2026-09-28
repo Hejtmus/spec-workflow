@@ -6,6 +6,7 @@ status: draft
 commits: []
 depends: []
 architecture: [<document>]
+changes: [<CODE>-1 <breaking|compatible|added|editorial>]
 commit-subject: <type(scope): subject>
 ---
 
@@ -25,7 +26,8 @@ The problem, with the findings it fixes, and the change in a few numbered points
 ## Specification
 
 The target state, by statement: which statements are added, changed or removed, and their exact
-new text. Then everything the implementer needs: signatures, types, error messages, defaults.
+new text. `changes` in the front matter classifies each change and removal (WORKFLOW §11.3). Then
+everything the implementer needs: signatures, types, error messages, defaults.
 
 ## Non-goals
 
@@ -33,11 +35,11 @@ new text. Then everything the implementer needs: signatures, types, error messag
 
 ## Tests
 
-Each test by file and exact title, the title carrying the statement IDs it checks, and its assertion
+Each test by file, level and exact title, the title carrying the statement IDs it checks, and its assertion
 as *given / when / then*, in terms of behavior. The author reviews these descriptions, not the test
 code.
 
-- `<test file>` › `<CODE>-1: <title>`: given …, when …, then ….
+- `<test file>` (<level>) › `<CODE>-1: <title>`: given …, when …, then ….
 
 ## Steps
 

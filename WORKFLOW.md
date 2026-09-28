@@ -1,6 +1,6 @@
 ---
 type: workflow
-version: 2.2.0
+version: 3.0.0
 ---
 
 # Spec Workflow
@@ -9,8 +9,8 @@ A development workflow for projects built mostly by coding agents. **People revi
 specifications. Agents write code. Tests connect the two.**
 
 This file is the canonical definition. A project keeps a verbatim copy at `docs/WORKFLOW.md`, and
-that copy governs the project. `docs/tools/check-docs.mjs` and `docs/tools/check-results.mjs`
-enforce what can be checked mechanically.
+that copy governs the project. The tools in `docs/tools/` enforce what can be checked mechanically
+(§9).
 
 The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT** and **MAY** are to be interpreted as
 described in RFC 2119 and RFC 8174 when, and only when, they appear in capitals.
@@ -60,6 +60,8 @@ docs/
   templates/                 skeletons for every document type
   tools/check-docs.mjs       the documentation checker
   tools/check-results.mjs    the test results checker
+  tools/check-release.mjs    the release checker
+  tools/record.mjs           writes the verification record
   architecture/
     <subject>.md             a subject small enough for one file
     <subject>/README.md      or a directory: an index document …
@@ -80,11 +82,11 @@ Every document starts with front matter: `---` lines around `key: value` pairs. 
 
 | `type` | Keys |
 | :-- | :-- |
-| `docs-index` | `workflow`: the version of this file that the project follows; `sources`: the directories, from the repository root, whose files are checked for references (§6.4) |
+| `docs-index` | `workflow`: the version of this file that the project follows; `levels`: the test levels of the project, such as `[unit, integration, e2e]` (§6.2); `sources`: the directories, from the repository root, whose files are checked for references (§6.4) |
 | `architecture` | `title`; `prefix`: the ID prefix, unique in the project; `codes`: statement codes, unique in the project; `verified`: the commit at which the *current* text was last checked against the code; `conforms`: `false` only for a document written before the project adopted the workflow |
 | `architecture-index` | the same keys as `architecture`. The directory's documents share its `prefix` and its register. |
 | `rfc-index` | none: the list of RFCs, `rfcs/README.md` |
-| `rfc` | `number`; `title`; `status`: `draft`, `implemented` or `withdrawn`; `commits`: the implementing commits, required when `implemented`; `depends`: RFC numbers; `architecture`: the documents it changes; `commit-subject`: the commit message subject; `sections`: `legacy` only for an RFC written before the project adopted the workflow |
+| `rfc` | `number`; `title`; `status`: `draft`, `implemented` or `withdrawn`; `commits`: the implementing commits, required when `implemented`; `depends`: RFC numbers; `architecture`: the documents it changes; `commit-subject`: the commit message subject; `sections`: `legacy` only for an RFC written before the project adopted the workflow; `changes`: the kind of each statement change it makes, `[SEC-4 breaking, SEC-2 editorial]` (§11.3) |
 
 A document in a directory (`architecture/<subject>/<component>.md`) takes `prefix` from its index
 and declares only `title`, `codes` and `verified`.
@@ -144,7 +146,8 @@ external documentation (named), or not yet verified.
 `getSecret` returns `undefined` when, and only when, the call fails with gRPC `NOT_FOUND` (5).
 Every other failure propagates unchanged.
 
-- Test: `packages/secrets/src/runtime.test.ts`
+- Test: `packages/secrets/src/runtime.test.ts`, `e2e/secrets.e2e.ts`
+- Level: unit, e2e
 ```
 
 - The heading is `#### <CODE>-<n> · <short title>`. `CODE` is one of the document's `codes`.
@@ -154,6 +157,7 @@ Every other failure propagates unchanged.
   - `` - Test: `path/a.test.ts` (unverified: the retry delay) ``: partly checked, naming the part that is not;
   - `- Test: unverified`, optionally followed by ` (reason)`;
   - `- Test: none yet`, only for a **New** statement.
+- **`- Level:`** is required, except for a removed statement. It lists the test levels at which the statement MUST be verified, from the project's `levels`, separated by commas (§6.2). The author decides them when reviewing the statement.
 - **`- State:`** is present only for a statement that is not current: `new (RFC-NNNN)`, `new (no RFC yet)`, or `removed (RFC-NNNN)`. A removed statement keeps its block, with its title struck through: `#### ~~SEC-9 · …~~`.
 - **Numbers are never reused.** Gaps are allowed.
 - **The boundary test:** *would a different but correct implementation have to match this?* If yes, it is a statement. If not, like a file path or an internal helper name, it belongs only in an RFC.
@@ -171,13 +175,23 @@ Every other failure propagates unchanged.
   ```
 
   - Test: `packages/secrets/src/runtime.test.ts`
+  - Level: unit
   ````
 
 ### 6.2 Tests
 
 - A test that checks a statement carries the statement's ID in its own title, for example `it('SEC-4: reads a missing secret as undefined', …)`. A test that checks several statements carries each ID.
 - `- Test:` names the files that hold those tests, by path from the repository root. The documentation checker confirms that each file exists and contains the ID. A new statement keeps `none yet` until its RFC is implemented, even when its tests are written first.
-- The results checker reads the JUnit XML reports of a test run. It confirms that every current statement that names test files has at least one passing test carrying its ID, and no failing one. It also confirms that every statement ID in a test title is defined and not removed.
+- **A statement is tested at the boundary it describes.** A mock of what the statement is about proves nothing about it. The level follows from the statement:
+  - a statement about the contract of a function or module: a **unit** test through its public interface;
+  - a statement about components working together, or about storage, a network or a file system: an **integration** test with the real collaborators;
+  - a statement about the system as its users meet it, such as a CLI, an HTTP API, a deployment or a UI flow: an **end-to-end** test against a running system;
+  - a statement about an external service: a **contract** test against the real service, or `unverified`.
+
+  Listing several levels verifies a statement from several sides. A unit test covers its edge cases cheaply, and an end-to-end test shows that it holds in the running system.
+- `docs/README.md` declares the project's `levels`, lowercase names such as `[unit, integration, e2e, contract]`. A project MAY add its own, such as `conformance`.
+- Each test run writes a JUnit XML report labeled with its level: `unit=reports/unit.xml`. The results checker confirms that every current statement that names test files has, for each of its levels, a passing test carrying its ID in a report of that level, and no failing test anywhere. It also confirms that every statement ID in a test title is defined and not removed.
+- A run MAY **defer** a level that it cannot run, such as a contract test that needs credentials a pull request does not have. A missing test of a deferred level is a warning, and the verification record of that run is not releasable (§11.2).
 
 ### 6.3 Trust
 
@@ -189,6 +203,7 @@ by something other than the agent that wrote the code:
 | The statement says what the author wants | the author, reviewing the Specification diff |
 | The test asserts what the statement says | the author, reviewing the RFC's description of each test (§8.1); a falsification audit |
 | The test was not shaped to fit the code | tests written before the code, by an agent that has not seen it (§8.2) |
+| The test exercises the statement at the boundary it describes | the author, declaring its `Level`; `check-results.mjs`, per level |
 | The test exists and carries the statement's ID | `check-docs.mjs` |
 | The test passes | `check-results.mjs` |
 
@@ -221,6 +236,22 @@ architecture document, which must hold it anyway (principle 2), not in a comment
   declared prefix or statement code, whether in a comment, a string or a test title, MUST be
   defined. A statement it names MUST NOT be removed. The check needs a git repository.
 
+### 6.5 Testing techniques
+
+Some statements hide their defects from tests written by example. For them, the tests SHOULD use:
+
+| A statement that … | is tested by … | because … |
+| :-- | :-- | :-- |
+| holds for every input of a kind ("any name", "every request") | a **property-based** test, with generated inputs | edge cases come from the generator, not from what someone thought of |
+| handles untrusted input, or is a security invariant | **fuzzing** | parsers and validators break on inputs nobody writes by hand |
+| handles failures ("every other failure propagates") | **fault injection**: the dependency is made to fail | the failure path is where untested code hides |
+| holds for several implementations of one contract | a **conformance suite**: one set of tests run against each implementation | a new implementation cannot drop part of the contract unnoticed |
+| describes an external service | a **contract test** against the real service, also run on a schedule | a mock records the assumption, not the service, and services change |
+
+**Regression per finding.** A Finding that records a defect, once fixed, leaves a test carrying the ID
+of the statement the defect violated. A defect that no statement covers first gets its statement,
+through an RFC.
+
 ## 7. IDs
 
 - Each architecture document or directory has a `prefix` of capital letters. IDs are the prefix, a category letter (`U`, `D`, `F`, `S`, `Q`) and a number, for example `GD4`. A lowercase letter MAY follow for sub-items, as in `GS1a`.
@@ -250,7 +281,9 @@ and commands.
 Its `##` sections, in order: `Summary`, `Files`, `Specification`, `Non-goals`, `Tests`, `Steps`,
 `Verification`, `Critique`.
 
-- **Tests** gives each test by file and exact title, the title carrying the statement IDs it checks.
+- **Specification** gives the exact new text of each statement the RFC adds, changes or removes.
+  The `changes` key classifies each change and removal (§11.3).
+- **Tests** gives each test by file, level and exact title, the title carrying the statement IDs it checks.
   It gives the test's assertion as *given / when / then*, in terms of behavior. The author reviews
   these descriptions instead of the test code.
 - **Critique** has the three paragraphs `**Pros**`, `**Cons & trade-offs**` and
@@ -280,23 +313,34 @@ checks out the full history.
 
 1. front matter: types, required keys, enums, unique prefixes and codes, the workflow version against `docs/WORKFLOW.md`;
 2. structure: the `#` title, the `##` parts and required `###` sections in order;
-3. statements: heading format, a code the document declares, no duplicates, the form of the `Test:` line, each named test file existing and containing the ID, valid `State:` values, `none yet` only for **New** statements;
+3. statements: heading format, a code the document declares, no duplicates, the form of the `Test:` line, a `Level:` line naming declared levels, each named test file existing and containing the ID, valid `State:` values, `none yet` only for **New** statements;
 4. IDs: defined once, every mention defined, registers complete and not stale;
-5. RFCs: file name against `number`, required sections and critique paragraphs unless `sections: legacy`, `commits` present and in the history of `HEAD` when `implemented`, every RFC listed in `rfcs/README.md`;
+5. RFCs: file name against `number`, required sections and critique paragraphs unless `sections: legacy`, each item of `changes` naming a defined statement and a kind, `commits` present and in the history of `HEAD` when `implemented`, every RFC listed in `rfcs/README.md`;
 6. links: every relative link resolves to a file, and every `#anchor` to a heading;
 7. references from code: when `sources` is set, every ID and statement named in a tracked source file is defined, and no named statement is removed (§6.4).
 
 A document with `conforms: false` is checked only for front matter and links, and is reported as a
 warning until it is restructured.
 
-`check-results.mjs` runs as `node docs/tools/check-results.mjs docs <report.xml> …` after the tests,
-with the JUnit XML reports they produced. It checks, and exits non-zero on any error:
+`check-results.mjs` runs as `node docs/tools/check-results.mjs docs <level>=<report.xml> … [--defer <level>]`
+after the tests, with the JUnit XML reports they produced. It checks, and exits non-zero on any error:
 
-1. every current statement that names test files has at least one passing test whose title carries its ID, and no failing one;
-2. every statement ID in a test title is defined and not removed.
+1. every current statement that names test files has, for each of its levels, a passing test whose title carries its ID in a report of that level, and no failing one;
+2. every statement ID in a test title is defined and not removed;
+3. every report is labeled with a declared level.
 
 It warns about a test that carries the ID of an `unverified` statement. It ignores the statements of a
 document with `conforms: false`.
+
+`check-release.mjs` runs as `node docs/tools/check-release.mjs docs [--plan release.json]`. It finds
+the packages to release (§11.4) and checks, for each, that its new version is high enough for the
+statement changes since its baseline (§11.3). With `--plan`, it writes those packages as JSON: name,
+manifest, version, baseline, required kind, and the RFCs for the release notes.
+
+`record.mjs` runs as `node docs/tools/record.mjs docs --junit <level>=<report.xml> … [--defer <level>]
+--build passed|failed [--out verification.json]`. It runs the other three checkers itself, reads the test counts from the
+JUnit XML, writes the verification record (§11.2), and exits non-zero unless every check passed.
+
 
 ## 10. Adoption and updates
 
@@ -304,4 +348,112 @@ document with `conforms: false`.
 - **Update:** `node <spec-workflow>/bin/init.mjs <project> --update` replaces only the vendored files (`WORKFLOW.md`, `templates/`, `tools/`) and sets `workflow` in `docs/README.md`.
 - **Existing documents:** give each a front matter. A document not yet restructured gets `conforms: false`, and an old RFC gets `sections: legacy`.
 - **From 1.x to 2.0:** remove the `## Critique` part of each architecture document, keeping any trade-off still relevant in its decision's *Cost:* line. Rewrite each `- Test:` line in the forms of §6.1, and add the statement IDs to the titles of the tests it names.
+- **From 2.x to 3.0:** declare the project's `levels` in `docs/README.md`, give every statement that is not removed a `- Level:` line, and label each JUnit report with its level. Release impact is checked from the first release whose baseline follows 3.0.0 (§11.5).
 - **Versioning:** this file follows semantic versioning. A change that makes a conforming project fail a checker is a major version.
+
+## 11. Integration and release
+
+### 11.1 Integration
+
+CI runs on every push to the main branch and on every pull request into it. A push to any other
+branch runs nothing. CI runs, in order: the documentation checker, the build, the tests (writing
+a JUnit XML report per level), and `record.mjs`, which runs the results and release checkers and writes the
+verification record. CI keeps the record as an artifact of the run. A push to the main branch runs
+every level. A pull request MAY defer the levels it cannot run (§6.2).
+
+- CI checks out the full history.
+- A pull request merges only when its checks passed on the exact result of the merge (required
+  status checks, or a merge queue).
+- A commit pushed straight to the main branch is checked after it lands. Its verification record
+  still gates the release (§11.4), so a failed check stops the release, not the push.
+- CI pins every third-party step to an immutable version, such as a commit hash, not a movable tag.
+- Each CI job has only the permissions it needs.
+
+### 11.2 The verification record
+
+`verification.json` states what was verified at one commit:
+
+```json
+{
+  "schema": 1,
+  "workflow": "3.0.0",
+  "commit": "<full commit hash>",
+  "created": "2026-09-28T17:30:00.000Z",
+  "checks": { "spec_check": "passed", "build": "passed", "tests": "passed", "test_traceability": "passed", "release_impact": "passed" },
+  "statements": { "total": 41, "verified": 37, "unverified": ["DEP-3", "SEC-7"], "new": ["STO-9"] },
+  "tests": {
+    "total": 124, "passed": 124, "failed": 0, "skipped": 0, "carrying_ids": 98,
+    "levels": { "unit": { "total": 101, "passed": 101, "failed": 0, "skipped": 0 }, "e2e": { "total": 23, "passed": 23, "failed": 0, "skipped": 0 } }
+  },
+  "deferred": [],
+  "releasable": true,
+  "packages": [{ "name": "@genoacms/core", "version": "0.7.0", "released": false }]
+}
+```
+
+- A check is `passed` or `failed`. `tests` fails when a test failed, or when the reports hold no test.
+- `statements.total` counts the current statements of conforming documents. `verified` counts those
+  with a passing test carrying their ID and no failing one. `unverified` lists the rest. `new` lists
+  the statements not yet implemented.
+- `carrying_ids` counts the tests whose title carries at least one statement ID. `levels` counts the
+  tests of each level.
+- `deferred` lists the levels the run deferred. `releasable` is true when every check passed and no
+  level was deferred.
+- `packages` lists every publishable package (§11.4). `released` says whether its version has a tag.
+
+### 11.3 Release impact
+
+Every statement change has a kind, which sets the smallest version increase that may carry it:
+
+| Kind | Meaning | At 1.0.0 or later | At 0.y.z, y ≥ 1 |
+| :-- | :-- | :-- | :-- |
+| `breaking` | a user relying on the old statement can fail | major | minor |
+| `added` | a new current statement | minor | patch |
+| `compatible` | changed or removed, and every user of the old statement still works | patch | patch |
+| `editorial` | the wording changed, the meaning did not | patch | patch |
+
+Two kinds of version are exempt, and need only be higher than the previous one:
+- a prerelease version, such as `1.0.0-alpha.21`;
+- a version whose baseline is `0.0.z`.
+
+`^0.0.z` accepts no other version, and prereleases promise no stability.
+
+- A statement is **added** when it is current now and was not current at the baseline. It is
+  **changed** when its text, without its `Test:`, `State:` and `Level:` lines, differs from the baseline. It
+  is **removed** when it is struck through or gone now, and was current at the baseline.
+- The RFCs **since the baseline** are the implemented RFCs with a commit outside the history of the
+  baseline tag. An RFC **names** a statement when its `changes` or its text mention the statement.
+- A changed or removed statement MUST be classified in the `changes` of an RFC since the baseline.
+  An added statement has the kind `added` unless one classifies it otherwise. An added statement
+  that no RFC since the baseline names documents existing behavior, and has no impact.
+- A change affects the packages of the RFCs since the baseline that name it. An RFC affects the
+  packages that own the files in its `Files` table, and a file belongs to the package of the
+  nearest version manifest above it (§11.4). An RFC whose files belong to no package affects every
+  package.
+- The **baseline** of a stable version is the highest stable version of the same package that has a
+  release tag. A package without one has no baseline, and its first stable release is not checked.
+- The required increase for a package is the largest kind among the changes that affect it.
+
+### 11.4 Release
+
+- A **version manifest** declares a package's name and version: `package.json`, `Cargo.toml`
+  (`[package]`), or a `VERSION` file holding only the version, named after its directory. A package
+  marked private (`"private": true`, `publish = false`) is not released.
+- A package version is **released** when its release tag exists: `<name>@<version>`, or
+  `v<version>` for a repository whose only package is at its root.
+- A release runs on every push to the main branch. It releases every package whose manifest
+  version has no release tag, and only when the verification record of that commit is `releasable`. It then creates the release tags. A push that changes no version releases nothing.
+- A release tag is never moved or deleted. A bad release is followed by a new version.
+- The verification record is attached to the release. The published packages and the record SHOULD
+  carry signed build provenance, such as npm provenance or an artifact attestation.
+- The release notes of a package are the titles and summaries of the RFCs implemented since its
+  baseline that affect it.
+
+### 11.5 Adoption
+
+Before the first release under the workflow, every version already published gets its release tag,
+on the commit it was published from, or on the adopting commit when that commit is unknown. Only new
+versions are then released. `check-release.mjs` lists the untagged versions.
+
+Release impact is checked only against a baseline whose `docs/README.md` declares workflow 3.0.0 or
+later. An earlier baseline is reported as a warning: its RFCs carry no `changes`.
