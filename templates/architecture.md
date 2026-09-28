@@ -38,7 +38,8 @@ What this component is for, who uses it, and where its boundaries are.
 
 ### Verification
 
-What the tests cover, how to run checks that need real services, and spikes (`**<P>S1, …**`).
+What the tests cover, how to run checks that need real services, spikes and falsification audits
+(`**<P>S1, …**`).
 
 ## Specification
 
@@ -49,17 +50,7 @@ What the tests cover, how to run checks that need real services, and spikes (`**
 The normative behavior. Plain present tense means MUST; **SHOULD** and **MAY** in capitals mark
 weaker requirements.
 
-- Test: `<test file>` › <test title>
+- Test: `<test file, from the repository root>`
 
-## Critique
+<!-- Each test that checks this statement carries `<CODE>-1` in its title. -->
 
-### <P>D1
-
-**Pros**
-- …
-
-**Cons & trade-offs**
-- …
-
-**Blindspots & missed edge cases**
-- …

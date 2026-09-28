@@ -37,16 +37,3 @@ What the subject is, the components, and how they relate to other documents.
 ## Specification
 
 None.
-
-## Critique
-
-### The document set
-
-**Pros**
-- …
-
-**Cons & trade-offs**
-- …
-
-**Blindspots & missed edge cases**
-- …
