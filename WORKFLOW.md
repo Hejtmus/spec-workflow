@@ -1,6 +1,6 @@
 ---
 type: workflow
-version: 2.0.0
+version: 2.1.0
 ---
 
 # Spec Workflow
@@ -157,6 +157,21 @@ Every other failure propagates unchanged.
 - **`- State:`** is present only for a statement that is not current: `new (RFC-NNNN)`, `new (no RFC yet)`, or `removed (RFC-NNNN)`. A removed statement keeps its block, with its title struck through: `#### ~~SEC-9 · …~~`.
 - **Numbers are never reused.** Gaps are allowed.
 - **The boundary test:** *would a different but correct implementation have to match this?* If yes, it is a statement. If not, like a file path or an internal helper name, it belongs only in an RFC.
+- **Code and pseudo-code** MAY express a statement, or a Design entry, more precisely than prose, in a fenced block. A block in the language of the code, such as a signature, a type, a data format or an example call, is normative as written. A block tagged `pseudo` is normative only for the behavior it makes observable. Its structure, names and steps are not normative, so a different implementation with the same observable behavior conforms.
+
+  ````
+  #### SEC-5 · Reads retry only transient failures
+
+  ```pseudo
+  for attempt in 1..3:
+    result = call()
+    if result is not UNAVAILABLE: return result
+    wait 100 ms × 2^(attempt − 1)
+  return result
+  ```
+
+  - Test: `packages/secrets/src/runtime.test.ts`
+  ````
 
 ### 6.2 Tests
 
@@ -187,6 +202,18 @@ for every statement an RFC adds or changes, and during drift audits.
 The remaining trust is in the auditor. It is reduced by running the audit in a separate session,
 preferably on a different model. The author's occasional reading of code is a sample that shows how
 far the auditor can be trusted. It is not a step of the workflow.
+
+### 6.4 References from code
+
+The code explains itself through names and small functions. The reason behind it lives in the
+architecture document, which must hold it anyway (principle 2), not in a comment.
+
+- A comment SHOULD consist only of references to IDs, for example `// SEC-4, GD5`. A reader
+  follows them to the statement or the decision.
+- A comment that explains is a missing name or a missing document entry. The fix is a better name, a
+  smaller function, or a Design entry, which the comment then references.
+- Comments that tools read, such as a license header, a type annotation or a linter directive, are
+  not explanations.
 
 ## 7. IDs
 
