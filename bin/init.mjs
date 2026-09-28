@@ -72,6 +72,7 @@ function nextSteps (update, previous) {
     'Run it in CI, and before every commit that touches docs/. CI checks out the full history (fetch-depth: 0).',
     'In CI, after the tests, run: node docs/tools/check-results.mjs docs <JUnit XML reports of the tests>',
     'Allow only merge commits or fast-forwards into the main branch: no squash or rebase merges (WORKFLOW §8.3).',
+    'List the source directories in docs/README.md, for example `sources: [src]`, so references from code are checked (WORKFLOW §6.4).',
     'Give existing documents front matter; mark old ones `conforms: false` or `sections: legacy`.',
     'Point the project\'s agent instructions (CLAUDE.md, AGENTS.md) at docs/WORKFLOW.md: see AGENTS.md in the Spec Workflow repository.'
   ]

@@ -13,12 +13,23 @@ const errors = (root) => run(root).filter(e => e.level === 'error')
 const rules = (root) => errors(root).map(e => `${e.rule}: ${e.message}`)
 const withTest = (line) => ({ 'docs/architecture/store/secrets.md': edit(COMPONENT, '- Test: `src/secrets.test.ts`', line) })
 
+const git = (root, ...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: root, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+const indexWithSources = (sources) => `---\ntype: docs-index\nworkflow: 1.0.0\nsources: [${sources}]\n---\n\n# Docs\n\n[store](architecture/store/README.md), [rfcs](rfcs/README.md)\n`
+const REMOVED = '#### ~~SEC-3 · Old~~\n\nGone.\n\n- Test: unverified\n- State: removed (RFC-0001)\n\n#### SEC-2 · Planned cleanup'
+
+/** A project whose docs index sets `sources`, in a git repository that tracks every file. */
+function trackedProject (sources, overrides = {}) {
+  const root = project({ 'docs/README.md': indexWithSources(sources), ...overrides })
+  git(root, 'init', '-q')
+  git(root, 'add', '-A')
+  return root
+}
+
 /** Makes `root` a git repository; returns a commit in the history of HEAD and one outside it. */
 function gitRepository (root) {
-  const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: root, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
-  git('init', '-q')
-  git('commit', '-q', '--allow-empty', '-m', 'one')
-  return { ancestor: git('rev-parse', '--short', 'HEAD'), outside: git('commit-tree', 'HEAD^{tree}', '-m', 'squashed').slice(0, 7) }
+  git(root, 'init', '-q')
+  git(root, 'commit', '-q', '--allow-empty', '-m', 'one')
+  return { ancestor: git(root, 'rev-parse', '--short', 'HEAD'), outside: git(root, 'commit-tree', 'HEAD^{tree}', '-m', 'squashed').slice(0, 7) }
 }
 
 describe('check-docs', () => {
@@ -133,6 +144,25 @@ describe('check-docs', () => {
     const nested = '\n````\n#### SEC-9 · Inside an example\n\n```pseudo\nreturn XD7\n```\n````\n'
     const root = project({ 'docs/architecture/store/secrets.md': edit(COMPONENT, 'Old versions are destroyed.\n', `Old versions are destroyed.\n${nested}`) })
     assert.deepEqual(rules(root), [])
+  })
+
+  test('references from tracked source files resolve, and name no removed statement', () => {
+    const root = trackedProject('src', {
+      'docs/architecture/store/secrets.md': edit(COMPONENT, '#### SEC-2 · Planned cleanup', REMOVED),
+      'src/store.ts': '// XD1, XS1a, SEC-1\nexport const store = 1 // XD9\n// SEC-7, SEC-3\n'
+    })
+    writeFileSync(join(root, 'src/untracked.ts'), '// XD8\n')
+    assert.deepEqual(rules(root), ['reference: XD9 is not defined', 'reference: SEC-7 is not defined', 'reference: SEC-3 is removed'])
+  })
+
+  test('docs and binary files are not scanned as sources', () => {
+    const root = trackedProject('.', { 'src/blob.bin': Buffer.from([0x58, 0x44, 0x39, 0x00]) })
+    assert.deepEqual(rules(root), [])
+  })
+
+  test('source directories exist, and are read with git', () => {
+    const root = project({ 'docs/README.md': indexWithSources('src, nowhere') })
+    assert.deepEqual(rules(root), ['front-matter: source directory nowhere does not exist', `reference: sources are read with git, and ${root} is not a git repository`])
   })
 
   test('quoted list items may contain commas', () => {

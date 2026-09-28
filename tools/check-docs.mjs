@@ -23,7 +23,7 @@ const DESIGN_SECTIONS = {
 const CRITIQUE_PARAGRAPHS = ['**Pros**', '**Cons & trade-offs**', '**Blindspots & missed edge cases**']
 const KEYS = {
   workflow: { required: ['version'], optional: [] },
-  'docs-index': { required: ['workflow'], optional: [] },
+  'docs-index': { required: ['workflow'], optional: ['sources'] },
   architecture: { required: ['title', 'codes', 'verified'], optional: ['prefix', 'conforms'] },
   'architecture-index': { required: ['title', 'prefix', 'codes', 'verified'], optional: ['conforms'] },
   'rfc-index': { required: [], optional: [] },
@@ -327,11 +327,19 @@ function collectDefinitions (doc, prefixes, report, definitions) {
 
 /** Register rows are checked by checkRegister, so the mention scan skips them. */
 function checkMentions (doc, pattern, known, rule, report) {
-  const regex = new RegExp(`(?<![A-Za-z0-9-])(${pattern})(?![A-Za-z0-9])`, 'g')
   const register = registerRange(doc)
-  doc.lines.forEach((line, i) => {
-    if (register !== null && i >= register.start && i < register.end) return
-    for (const [, id] of line.matchAll(regex)) if (!known(id)) report.error(doc.path, i + 1, rule, `${id} is not defined`)
+  const lines = doc.lines.map((line, i) => (register !== null && i >= register.start && i < register.end ? '' : line))
+  scanReferences(doc.path, lines, pattern, id => (known(id) ? null : 'is not defined'), rule, report)
+}
+
+/** Reports each token of `pattern` in `lines` for which `problemOf` returns a problem. */
+function scanReferences (path, lines, pattern, problemOf, rule, report) {
+  const regex = new RegExp(`(?<![A-Za-z0-9-])(${pattern})(?![A-Za-z0-9])`, 'g')
+  lines.forEach((line, i) => {
+    for (const [, id] of line.matchAll(regex)) {
+      const problem = problemOf(id)
+      if (problem !== null) report.error(path, i + 1, rule, `${id} ${problem}`)
+    }
   })
 }
 
@@ -454,8 +462,64 @@ function checkIds (docs, statements, report) {
   const codes = [...new Set([...statements.keys()].map(id => id.split('-')[0]))]
   const scanned = docs.filter(d => d.front?.type !== 'workflow')
   for (const doc of scanned) {
-    if (prefixes.size > 0) checkMentions(doc, idPattern(prefixes), id => definitions.has(id) || definitions.has(baseId(id)), 'id', report)
+    if (prefixes.size > 0) checkMentions(doc, idPattern(prefixes), id => isDefined(definitions, id), 'id', report)
     if (codes.length > 0) checkMentions(doc, `(?:${codes.join('|')})-\\d+`, id => statements.has(id), 'statement', report)
+  }
+  return { prefixes, definitions }
+}
+
+const isDefined = (definitions, id) => definitions.has(id) || definitions.has(baseId(id))
+
+// ─── References from code ───────────────────────────────────────────────────
+
+const isDirectory = (path) => existsSync(path) && statSync(path).isDirectory()
+
+/** The `sources` of docs/README.md (WORKFLOW §6.4) that exist; reports the rest. */
+function sourcesOf (docs, root, report) {
+  const index = docs.find(d => d.front?.type === 'docs-index')
+  const sources = index?.front?.sources
+  if (sources === undefined) return []
+  if (!Array.isArray(sources) || sources.some(s => typeof s !== 'string')) {
+    report.error(index.path, 1, 'front-matter', 'sources must be a list of directories')
+    return []
+  }
+  for (const source of sources.filter(s => !isDirectory(join(root, s)))) report.error(index.path, 1, 'front-matter', `source directory ${source} does not exist`)
+  return sources.filter(s => isDirectory(join(root, s)))
+}
+
+/** Files git tracks under `sources`, outside `docs/`; `null` outside a git repository. */
+function trackedFiles (root, sources, docsDir) {
+  try {
+    const listed = execFileSync('git', ['ls-files', '-z', '--', ...sources], { cwd: root, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 28 })
+    const docs = `${relative(root, docsDir)}/`
+    return listed.split('\0').filter(file => file !== '' && !file.startsWith(docs))
+  } catch { return null }
+}
+
+/** The text of a file, or `null` for a binary one. */
+function readText (path) {
+  const content = readFileSync(path)
+  return content.includes(0) ? null : content.toString('utf-8')
+}
+
+function statementProblem (statements, id) {
+  if (!statements.has(id)) return 'is not defined'
+  return statements.get(id).state === 'removed' ? 'is removed' : null
+}
+
+/** Every ID and statement a tracked source file refers to resolves, and no statement is removed. */
+function checkSourceReferences (root, docsDir, sources, ids, report) {
+  if (sources.length === 0) return
+  const files = trackedFiles(root, sources, docsDir)
+  if (files === null) return report.error(docsDir, 1, 'reference', `sources are read with git, and ${root} is not a git repository`)
+  const patterns = [
+    ids.prefixes.size > 0 && [idPattern(ids.prefixes), id => (isDefined(ids.definitions, id) ? null : 'is not defined')],
+    ids.codes.size > 0 && [`(?:${[...ids.codes].join('|')})-\\d+`, id => statementProblem(ids.statements, id)]
+  ].filter(Boolean)
+  for (const file of files) {
+    const path = join(root, file)
+    const text = isFile(path) ? readText(path) : null
+    if (text !== null) for (const [pattern, problemOf] of patterns) scanReferences(path, text.split('\n'), pattern, problemOf, 'reference', report)
   }
 }
 
@@ -478,13 +542,16 @@ function analyze (docsDir) {
   for (const doc of docs) checkFrontMatter(doc, report)
   checkUniqueDeclarations(docs, report)
   checkWorkflowVersion(docs, report)
-  const statements = checkArchitecture(docs, dirname(resolve(docsDir)), report)
-  checkIds(docs, statements, report)
+  const root = dirname(resolve(docsDir))
+  const statements = checkArchitecture(docs, root, report)
+  const { prefixes, definitions } = checkIds(docs, statements, report)
+  const codes = declaredCodes(docs)
+  checkSourceReferences(root, resolve(docsDir), sourcesOf(docs, root, report), { prefixes, definitions, statements, codes: codes.conforming }, report)
   for (const doc of docs.filter(d => d.front?.type === 'rfc')) checkRfc(doc, report)
   checkRfcIndex(docs, report)
   const cache = new Map()
   for (const doc of docs.filter(d => d.front?.type !== 'workflow')) checkLinks(doc, cache, report)
-  return { report, statements, codes: declaredCodes(docs) }
+  return { report, statements, codes }
 }
 
 const check = (docsDir) => analyze(docsDir).report
