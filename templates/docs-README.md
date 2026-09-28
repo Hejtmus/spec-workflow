@@ -1,6 +1,6 @@
 ---
 type: docs-index
-workflow: 1.0.0
+workflow: <version>
 ---
 
 # <Project> documentation

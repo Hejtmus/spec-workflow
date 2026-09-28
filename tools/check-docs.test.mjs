@@ -1,219 +1,25 @@
 import { test, describe, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join, dirname } from 'node:path'
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { check, slug } from './check-docs.mjs'
+import { check, slug, parseFrontMatter } from './check-docs.mjs'
+import { COMPONENT, INDEX, RFC, WORKFLOW, edit, project, removeProjects } from './fixtures.mjs'
 
-const roots = []
-afterEach(() => { while (roots.length > 0) rmSync(roots.pop(), { recursive: true, force: true }) })
-
-const WORKFLOW = '---\ntype: workflow\nversion: 1.0.0\n---\n\n# Spec Workflow\n\nExamples such as GD1 and SEC-4 are not checked here.\n'
-
-const COMPONENT = `---
-type: architecture
-title: Secrets
-codes: [SEC]
-verified: abc1234
----
-
-# Secrets
-
-## Design
-
-### Role
-
-Stores secrets. See [the index](README.md#overview).
-
-### Decisions
-
-**XD1. Absence is narrow.** SEC-1.
-*Why:* a reason.
-*Cost:* a cost.
-
-### Findings
-
-| # | Finding | State |
-| :-- | :-- | :-- |
-| XF1 | A finding about SEC-1. | open |
-
-### History
-
-None.
-
-### Verification
-
-- **XS1, a spike.** Not run.
-
-## Specification
-
-### Runtime
-
-#### SEC-1 · Absence is only NOT_FOUND
-
-\`getSecret\` returns \`undefined\` only on NOT_FOUND.
-
-- Test: \`secrets.test.ts\` › reads a missing secret
-
-#### SEC-2 · Planned cleanup
-
-Old versions are destroyed.
-
-- Test: none yet
-- State: new (RFC-0001)
-
-## Critique
-
-### XD1
-
-**Pros**
-- one
-
-**Cons & trade-offs**
-- two
-
-**Blindspots & missed edge cases**
-- three
-`
-
-const INDEX = `---
-type: architecture-index
-title: Store
-prefix: X
-codes: []
-verified: abc1234
----
-
-# Store
-
-## Design
-
-### Overview
-
-The store. Documents: [secrets](secrets.md#sec-1--absence-is-only-not_found).
-
-### Documents
-
-| Document | Codes | Covers |
-| :-- | :-- | :-- |
-| [\`secrets.md\`](secrets.md) | SEC | secrets |
-
-### Decisions
-
-| # | Decision | Where |
-| :-- | :-- | :-- |
-| XU1 | Use the store. | XD1 |
-
-### History
-
-None.
-
-### Register
-
-| ID | Summary | State | Document |
-| :-- | :-- | :-- | :-- |
-| XU1 | use the store | decided | README |
-| XD1 | absence | current | secrets |
-| XF1 | a finding | open | secrets |
-| XS1 | a spike | not run | secrets |
-
-## Specification
-
-None.
-
-## Critique
-
-### The set
-
-**Pros**
-- a
-
-**Cons & trade-offs**
-- b
-
-**Blindspots & missed edge cases**
-- c
-`
-
-const RFC = `---
-type: rfc
-number: 1
-title: Cleanup
-status: draft
-commits: []
-depends: []
-architecture: [store/secrets.md]
-commit-subject: feat: clean up
----
-
-# RFC-0001: Cleanup
-
-## Summary
-
-Implements SEC-2 (XD1).
-
-## Files
-
-None.
-
-## Specification
-
-SEC-2 becomes current.
-
-## Non-goals
-
-None.
-
-## Tests
-
-None.
-
-## Steps
-
-1. Do it.
-
-## Verification
-
-Run the tests.
-
-## Critique
-
-**Pros**
-- a
-
-**Cons & trade-offs**
-- b
-
-**Blindspots & missed edge cases**
-- c
-`
-
-function project (overrides = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'check-docs-'))
-  roots.push(root)
-  const files = {
-    'docs/WORKFLOW.md': WORKFLOW,
-    'docs/README.md': '---\ntype: docs-index\nworkflow: 1.0.0\n---\n\n# Docs\n\n[store](architecture/store/README.md), [rfcs](rfcs/README.md)\n',
-    'docs/architecture/store/README.md': INDEX,
-    'docs/architecture/store/secrets.md': COMPONENT,
-    'docs/rfcs/README.md': '---\ntype: rfc-index\n---\n\n# RFCs\n\n| RFC | Title |\n| :-- | :-- |\n| [0001](0001-cleanup.md) | Cleanup |\n',
-    'docs/rfcs/0001-cleanup.md': RFC,
-    'docs/templates/architecture.md': '# <Subject>\n\nNot checked: <P>D1, [broken](nowhere.md)\n',
-    ...overrides
-  }
-  for (const [path, content] of Object.entries(files)) {
-    if (content === null) continue
-    mkdirSync(dirname(join(root, path)), { recursive: true })
-    writeFileSync(join(root, path), content)
-  }
-  return root
-}
+afterEach(removeProjects)
 
 const run = (root) => check(join(root, 'docs')).entries
 const errors = (root) => run(root).filter(e => e.level === 'error')
 const rules = (root) => errors(root).map(e => `${e.rule}: ${e.message}`)
-const edit = (content, from, to) => { assert.ok(content.includes(from), `fixture lacks ${from}`); return content.replace(from, to) }
+const withTest = (line) => ({ 'docs/architecture/store/secrets.md': edit(COMPONENT, '- Test: `src/secrets.test.ts`', line) })
+
+/** Makes `root` a git repository; returns a commit in the history of HEAD and one outside it. */
+function gitRepository (root) {
+  const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: root, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  git('init', '-q')
+  git('commit', '-q', '--allow-empty', '-m', 'one')
+  return { ancestor: git('rev-parse', '--short', 'HEAD'), outside: git('commit-tree', 'HEAD^{tree}', '-m', 'squashed').slice(0, 7) }
+}
 
 describe('check-docs', () => {
   test('a conforming project has no errors', () => {
@@ -225,8 +31,19 @@ describe('check-docs', () => {
   })
 
   test('a statement needs a Test line', () => {
-    const root = project({ 'docs/architecture/store/secrets.md': edit(COMPONENT, '- Test: `secrets.test.ts` › reads a missing secret\n', '') })
-    assert.deepEqual(rules(root), ["statement: SEC-1 has no '- Test:' line"])
+    assert.deepEqual(rules(project(withTest(''))), ["statement: SEC-1 has no '- Test:' line"])
+  })
+
+  test('the Test line has one of the forms', () => {
+    assert.deepEqual(rules(project(withTest('- Test: `src/secrets.test.ts` › reads a missing secret'))), ["statement: SEC-1: '- Test: `src/secrets.test.ts` › reads a missing secret' is none of the forms in WORKFLOW §6.1"])
+    assert.deepEqual(rules(project(withTest('- Test: unverified (needs a real server)'))), [])
+    assert.deepEqual(rules(project(withTest('- Test: `src/secrets.test.ts` (unverified: the retry delay)'))), [])
+  })
+
+  test('named test files exist and carry the statement ID', () => {
+    assert.deepEqual(rules(project(withTest('- Test: `src/secrets.test.ts`, `src/gone.test.ts`'))), ['test: src/gone.test.ts does not exist'])
+    const other = project({ 'src/secrets.test.ts': "test('SEC-12: something else', () => {})\n" })
+    assert.deepEqual(rules(other), ['test: src/secrets.test.ts has no test carrying SEC-1'])
   })
 
   test("'none yet' is only for new statements", () => {
@@ -260,9 +77,15 @@ describe('check-docs', () => {
     assert.ok(rules(root).some(r => r.includes("Design: 'History' is out of order") || r.includes("Design: 'Findings' is out of order")))
   })
 
-  test('critique paragraphs are required', () => {
-    const root = project({ 'docs/architecture/store/secrets.md': edit(COMPONENT, '**Cons & trade-offs**\n- two\n', '') })
-    assert.deepEqual(rules(root), ["critique: 'XD1' lacks **Cons & trade-offs**"])
+  test('an architecture document holds no Critique', () => {
+    const root = project({ 'docs/architecture/store/secrets.md': `${COMPONENT}\n## Critique\n\n### XD1\n\n**Pros**\n- one\n` })
+    assert.deepEqual(rules(root), ['structure: an architecture document holds no ## Critique: critiques live in RFCs (WORKFLOW §5.1)'])
+  })
+
+  test('RFC critique paragraphs are required unless legacy', () => {
+    const lacking = edit(RFC, '**Cons & trade-offs**\n- b\n', '')
+    assert.deepEqual(rules(project({ 'docs/rfcs/0001-cleanup.md': lacking })), ['critique: the Critique lacks **Cons & trade-offs**'])
+    assert.deepEqual(rules(project({ 'docs/rfcs/0001-cleanup.md': edit(lacking, 'commit-subject: feat: clean up', 'commit-subject: feat: clean up\nsections: legacy') })), [])
   })
 
   test('links resolve to files and anchors', () => {
@@ -275,10 +98,14 @@ describe('check-docs', () => {
     assert.deepEqual(rules(root), ['front-matter: workflow 1.0.0 does not match WORKFLOW.md 2.0.0'])
   })
 
-  test('an implemented RFC names commits known to git', () => {
-    const root = project({ 'docs/rfcs/0001-cleanup.md': edit(RFC, 'status: draft\ncommits: []', 'status: implemented\ncommits: [deadbee]') })
-    execFileSync('git', ['init', '-q'], { cwd: root })
-    assert.deepEqual(rules(root), ['rfc: commit deadbee is not known to git'])
+  test('an implemented RFC names commits in the history of HEAD', () => {
+    const root = project()
+    const { ancestor, outside } = gitRepository(root)
+    const implement = (commits) => writeFileSync(join(root, 'docs/rfcs/0001-cleanup.md'), edit(RFC, 'status: draft\ncommits: []', `status: implemented\ncommits: [${commits}]`))
+    implement(ancestor)
+    assert.deepEqual(rules(root), [])
+    implement(`deadbee, ${outside}`)
+    assert.deepEqual(rules(root), ['rfc: commit deadbee is not known to git', `rfc: commit ${outside} is not in the history of HEAD: squashed or rebased? (WORKFLOW §8.3)`])
   })
 
   test('RFC sections are required unless legacy, and every RFC is listed', () => {
@@ -298,7 +125,11 @@ describe('check-docs', () => {
   test('front matter is required and its keys are checked', () => {
     const root = project({ 'docs/architecture/store/secrets.md': edit(COMPONENT, 'verified: abc1234', 'verified: abc1234\nowner: me') })
     assert.deepEqual(rules(root), ["front-matter: unknown key 'owner' for type architecture"])
-    const bare = project({ 'docs/architecture/store/secrets.md': readFileSync(new URL(import.meta.url)).toString().slice(0, 0) + '# Bare\n' })
+    const bare = project({ 'docs/architecture/store/secrets.md': '# Bare\n' })
     assert.ok(rules(bare).includes('front-matter: missing front matter'))
+  })
+
+  test('quoted list items may contain commas', () => {
+    assert.deepEqual(parseFrontMatter(['---', 'architecture: ["a, b", c]', '---']).data.architecture, ['a, b', 'c'])
   })
 })

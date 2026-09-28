@@ -1,6 +1,6 @@
 {
   "name": "spec-workflow",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "A documentation-driven workflow for software built mostly by coding agents",
   "type": "module",
   "private": true,
