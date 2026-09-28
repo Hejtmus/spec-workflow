@@ -129,6 +129,12 @@ describe('check-docs', () => {
     assert.ok(rules(bare).includes('front-matter: missing front matter'))
   })
 
+  test('a fence closes only with the same marker, at least as long', () => {
+    const nested = '\n````\n#### SEC-9 · Inside an example\n\n```pseudo\nreturn XD7\n```\n````\n'
+    const root = project({ 'docs/architecture/store/secrets.md': edit(COMPONENT, 'Old versions are destroyed.\n', `Old versions are destroyed.\n${nested}`) })
+    assert.deepEqual(rules(root), [])
+  })
+
   test('quoted list items may contain commas', () => {
     assert.deepEqual(parseFrontMatter(['---', 'architecture: ["a, b", c]', '---']).data.architecture, ['a, b', 'c'])
   })

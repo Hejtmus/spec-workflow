@@ -101,12 +101,17 @@ function parseFrontMatter (lines) {
 
 /** Lines with fenced code blocks blanked, so nothing inside them counts as structure. */
 function withoutFences (lines) {
-  let inFence = false
+  let open = null
   return lines.map(line => {
-    if (/^\s*(```|~~~)/.test(line)) { inFence = !inFence; return '' }
-    return inFence ? '' : line
+    const fence = /^\s*(`{3,}|~{3,})(.*)$/.exec(line)
+    if (open === null && fence !== null) { open = fence[1]; return '' }
+    if (open !== null && fence !== null && closes(open, fence)) { open = null; return '' }
+    return open === null ? line : ''
   })
 }
+
+/** CommonMark: a fence closes with the same character, at least as long, and nothing after it. */
+const closes = (open, [, marker, rest]) => marker[0] === open[0] && marker.length >= open.length && rest.trim() === ''
 
 function parseHeadings (lines) {
   return lines.flatMap((line, index) => {
