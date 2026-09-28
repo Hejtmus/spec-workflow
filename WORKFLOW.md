@@ -214,6 +214,8 @@ architecture document, which must hold it anyway (principle 2), not in a comment
   smaller function, or a Design entry, which the comment then references.
 - Comments that tools read, such as a license header, a type annotation or a linter directive, are
   not explanations.
+- A doc comment on an exported API is exempt. Editors and generated references show it to the
+  API's users, who do not read the architecture documents. It MAY explain, and MAY reference IDs.
 - Every reference resolves. When `docs/README.md` lists `sources`, the documentation checker reads
   every file that git tracks under them, outside `docs/`, and skips binary files. Each token with a
   declared prefix or statement code, whether in a comment, a string or a test title, MUST be
