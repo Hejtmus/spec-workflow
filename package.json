@@ -1,0 +1,12 @@
+{
+  "name": "spec-workflow",
+  "version": "1.0.0",
+  "description": "A documentation-driven workflow for software built mostly by coding agents",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "bin": { "spec-workflow-init": "bin/init.mjs" },
+  "scripts": {
+    "test": "node --test tools/*.test.mjs"
+  }
+}
