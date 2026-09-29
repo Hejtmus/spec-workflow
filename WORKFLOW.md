@@ -1,6 +1,6 @@
 ---
 type: workflow
-version: 3.0.0
+version: 3.1.0
 ---
 
 # Spec Workflow
@@ -50,6 +50,11 @@ described in RFC 2119 and RFC 8174 when, and only when, they appear in capitals.
 | Tests | — | written from the Specification and the RFC, SHOULD be by an agent that has not seen the implementation (§8.2) |
 | Code | — | implement RFCs exactly as written |
 | Falsification audits | — | an agent that did not write the code (§6.3) |
+
+An agent that needs a decision of the author asks the author and waits for the answer. It does not
+write the question into a document, and does not commit it. The answer goes into the document with
+the change it belongs to. An `Open questions` row (§5.3) records only a question the author chooses
+to leave open.
 
 ## 3. Repository layout
 
@@ -303,6 +308,9 @@ Documents and code are committed separately, in this order: the architecture cha
 tests when they are written first, the code, and then the architecture document's update to current.
 Each commit passes the checker, the build and the tests.
 
+An agent commits, merges or pushes only with the author's approval of that commit. It prepares the
+change and its message, and waits.
+
 Commits reach the main branch unchanged, by a merge commit or a fast-forward. Squash merges and
 rebase merges are forbidden, because they replace the hashes that `commits` and `verified` name. CI
 checks out the full history.
@@ -349,6 +357,7 @@ JUnit XML, writes the verification record (§11.2), and exits non-zero unless ev
 - **Existing documents:** give each a front matter. A document not yet restructured gets `conforms: false`, and an old RFC gets `sections: legacy`.
 - **From 1.x to 2.0:** remove the `## Critique` part of each architecture document, keeping any trade-off still relevant in its decision's *Cost:* line. Rewrite each `- Test:` line in the forms of §6.1, and add the statement IDs to the titles of the tests it names.
 - **From 2.x to 3.0:** declare the project's `levels` in `docs/README.md`, give every statement that is not removed a `- Level:` line, and label each JUnit report with its level. Release impact is checked from the first release whose baseline follows 3.0.0 (§11.5).
+- **From 3.0 to 3.1:** no document changes. Agents ask the author instead of writing questions into documents (§2), and commit only with the author's approval (§8.3).
 - **Versioning:** this file follows semantic versioning. A change that makes a conforming project fail a checker is a major version.
 
 ## 11. Integration and release
