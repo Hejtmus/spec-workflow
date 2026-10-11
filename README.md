@@ -1,5 +1,7 @@
 # Spec Workflow
 
+![Spec Workflow](assets/spec-workflow-brutal-abstract-a.jpg)
+
 A documentation-driven workflow for software built mostly by coding agents.
 
 **People review specifications. Agents write code. Tests connect the two.**
