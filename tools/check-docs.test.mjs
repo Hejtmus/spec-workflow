@@ -113,6 +113,15 @@ describe('check-docs', () => {
     assert.deepEqual(rules(root), ['link: README.md#nowhere: no heading with anchor #nowhere'])
   })
 
+  test('angle-bracket link destinations may hold parentheses and spaces', () => {
+    const linking = (target) => ({
+      'src/routes/(protected)/a page.ts': '',
+      'docs/architecture/store/secrets.md': edit(COMPONENT, '(README.md#overview)', `(<${target}>)`)
+    })
+    assert.deepEqual(rules(project(linking('../../../src/routes/(protected)/a page.ts'))), [])
+    assert.deepEqual(rules(project(linking('../../../src/routes/(public)/a page.ts'))), ['link: ../../../src/routes/(public)/a page.ts does not exist'])
+  })
+
   test('the workflow version matches the vendored WORKFLOW.md', () => {
     const root = project({ 'docs/WORKFLOW.md': WORKFLOW.replace('1.0.0', '2.0.0') })
     assert.deepEqual(rules(root), ['front-matter: workflow 1.0.0 does not match WORKFLOW.md 2.0.0'])

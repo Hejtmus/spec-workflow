@@ -410,9 +410,10 @@ function anchorsOf (path, cache) {
 }
 
 function checkLinks (doc, cache, report) {
-  const link = /\[[^\]]*\]\(([^)\s]+)\)/g
+  const link = /\[[^\]]*\]\((?:<([^<>\n]+)>|([^)\s]+))\)/g
   doc.lines.forEach((line, i) => {
-    for (const [, target] of line.replace(/`[^`]*`/g, '').matchAll(link)) {
+    for (const [, bracketed, bare] of line.replace(/`[^`]*`/g, '').matchAll(link)) {
+      const target = bracketed ?? bare
       if (/^[a-z]+:/i.test(target)) continue
       const [file, anchor] = target.split('#')
       const path = file === '' ? doc.path : resolve(dirname(doc.path), decodeURI(file))
