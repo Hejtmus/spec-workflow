@@ -1,6 +1,6 @@
 ---
 type: workflow
-version: 3.1.1
+version: 3.2.0
 ---
 
 # Spec Workflow
@@ -76,6 +76,13 @@ docs/
     NNNN-<slug>.md           one RFC per file
 ```
 
+A repository that holds several projects, such as the packages of a monorepo, MAY keep each
+project's documents apart, in `docs/<project>/architecture/` and `docs/<project>/rfcs/`, beside the
+shared `README.md`, `WORKFLOW.md`, `templates/` and `tools/`. Each RFC directory has its own
+`README.md`, the list of its RFCs. RFC numbers are one sequence across every RFC directory, so
+`RFC-NNNN` names one RFC in the whole repository. Prefixes and statement codes are unique across the
+repository too.
+
 `docs/` is at the repository root. The documentation checker runs from the repository root with
 `node docs/tools/check-docs.mjs docs`, before every commit that touches `docs/`, and in CI. The
 results checker runs in CI after the tests (§9).
@@ -90,7 +97,7 @@ Every document starts with front matter: `---` lines around `key: value` pairs. 
 | `docs-index` | `workflow`: the version of this file that the project follows; `levels`: the test levels of the project, such as `[unit, integration, e2e]` (§6.2); `sources`: the directories, from the repository root, whose files are checked for references (§6.4) |
 | `architecture` | `title`; `prefix`: the ID prefix, unique in the project; `codes`: statement codes, unique in the project; `verified`: the commit at which the *current* text was last checked against the code; `conforms`: `false` only for a document written before the project adopted the workflow |
 | `architecture-index` | the same keys as `architecture`. The directory's documents share its `prefix` and its register. |
-| `rfc-index` | none: the list of RFCs, `rfcs/README.md` |
+| `rfc-index` | none: the list of the RFCs in its directory, `rfcs/README.md` |
 | `rfc` | `number`; `title`; `status`: `draft`, `implemented` or `withdrawn`; `commits`: the implementing commits, required when `implemented`; `depends`: RFC numbers; `architecture`: the documents it changes; `commit-subject`: the commit message subject; `sections`: `legacy` only for an RFC written before the project adopted the workflow; `changes`: the kind of each statement change it makes, `[SEC-4 breaking, SEC-2 editorial]` (§11.3) |
 
 A document in a directory (`architecture/<subject>/<component>.md`) takes `prefix` from its index
@@ -299,7 +306,9 @@ Its `##` sections, in order: `Summary`, `Files`, `Specification`, `Non-goals`, `
 1. **Draft.** The architecture document marks the target statements **New** with `State: new (RFC-NNNN)`, and the RFC specifies the change.
 2. **Tests.** An agent session that has not seen the implementation SHOULD write the RFC's tests from the Specification and the RFC, before the code. They are marked as expected failures (for example `it.fails`), so the test suite still passes.
 3. **Implementation.** The agent follows the RFC. It removes the expected-failure markers and does not change what a test asserts. A contradiction with reality, including a test that turns out to be wrong, is corrected in the RFC, and in the architecture document if needed, **before** the code is committed (discovery rule).
-4. **Implemented.** `status: implemented` with `commits`. The architecture document drops the markers, names the test files, and updates `verified`. From now on the RFC is **frozen**: its content is never edited again.
+4. **Implemented.** `status: implemented` with `commits`. The architecture document drops the markers, names the test files, and updates `verified`. From now on the RFC is **frozen**: its content is never edited again. A change of layout (§3) MAY
+   move it, and then rewrites only its relative links and the paths that name moved documents, in its
+   front matter and its text, so they resolve again. The move is committed on its own.
 5. A later change is a new RFC that references the old one.
 
 ### 8.3 Commits
@@ -323,7 +332,7 @@ checks out the full history.
 2. structure: the `#` title, the `##` parts and required `###` sections in order;
 3. statements: heading format, a code the document declares, no duplicates, the form of the `Test:` line, a `Level:` line naming declared levels, each named test file existing and containing the ID, valid `State:` values, `none yet` only for **New** statements;
 4. IDs: defined once, every mention defined, registers complete and not stale;
-5. RFCs: file name against `number`, required sections and critique paragraphs unless `sections: legacy`, each item of `changes` naming a defined statement and a kind, `commits` present and in the history of `HEAD` when `implemented`, every RFC listed in `rfcs/README.md`;
+5. RFCs: file name against `number`, required sections and critique paragraphs unless `sections: legacy`, each item of `changes` naming a defined statement and a kind, `commits` present and in the history of `HEAD` when `implemented`, every RFC listed in the `rfcs/README.md` of its directory, and, as a warning, an RFC number used twice;
 6. links: every relative link resolves to a file, and every `#anchor` to a heading;
 7. references from code: when `sources` is set, every ID and statement named in a tracked source file is defined, and no named statement is removed (§6.4).
 
@@ -358,6 +367,7 @@ JUnit XML, writes the verification record (§11.2), and exits non-zero unless ev
 - **From 1.x to 2.0:** remove the `## Critique` part of each architecture document, keeping any trade-off still relevant in its decision's *Cost:* line. Rewrite each `- Test:` line in the forms of §6.1, and add the statement IDs to the titles of the tests it names.
 - **From 2.x to 3.0:** declare the project's `levels` in `docs/README.md`, give every statement that is not removed a `- Level:` line, and label each JUnit report with its level. Release impact is checked from the first release whose baseline follows 3.0.0 (§11.5).
 - **From 3.0 to 3.1:** no document changes. Agents ask the author instead of writing questions into documents (§2), and commit only with the author's approval (§8.3).
+- **From 3.1 to 3.2:** no document changes. A repository with several projects MAY split its documents per project (§3); moving a frozen RFC rewrites only its links and paths (§8.2).
 - **Versioning:** this file follows semantic versioning. A change that makes a conforming project fail a checker is a major version.
 
 ## 11. Integration and release

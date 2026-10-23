@@ -446,13 +446,24 @@ function checkCommits (doc, report) {
   }
 }
 
+/** Every RFC is listed in the `rfc-index` of its own directory (§3). */
 function checkRfcIndex (docs, report) {
-  const rfcs = docs.filter(d => d.front?.type === 'rfc')
-  const index = docs.find(d => d.front?.type === 'rfc-index')
-  if (rfcs.length === 0) return
-  if (index === undefined) return report.error(rfcs[0].path, 1, 'rfc', 'rfcs/README.md with type rfc-index is missing')
-  const text = index.lines.join('\n')
-  for (const rfc of rfcs) if (!text.includes(`(${basename(rfc.path)})`)) report.error(index.path, 1, 'rfc', `${basename(rfc.path)} is not listed`)
+  const indexes = docs.filter(d => d.front?.type === 'rfc-index')
+  for (const rfc of docs.filter(d => d.front?.type === 'rfc')) {
+    const index = indexes.find(i => dirname(i.path) === dirname(rfc.path))
+    if (index === undefined) report.error(rfc.path, 1, 'rfc', 'README.md with type rfc-index is missing in this directory')
+    else if (!index.lines.join('\n').includes(`(${basename(rfc.path)})`)) report.error(index.path, 1, 'rfc', `${basename(rfc.path)} is not listed`)
+  }
+}
+
+/** RFC numbers are one sequence across every RFC directory of the project (§3). */
+function checkRfcNumbers (docs, report) {
+  const seen = new Map()
+  for (const rfc of docs.filter(d => d.front?.type === 'rfc' && Number.isInteger(d.front.number))) {
+    const other = seen.get(rfc.front.number)
+    if (other === undefined) seen.set(rfc.front.number, rfc)
+    else report.warning(rfc.path, 1, 'rfc', `number ${rfc.front.number} is also used by ${relative(dirname(rfc.path), other.path)}`)
+  }
 }
 
 // ─── Orchestration ──────────────────────────────────────────────────────────
@@ -596,6 +607,7 @@ function analyze (docsDir) {
   checkSourceReferences(root, resolve(docsDir), sourcesOf(docs, root, report), { prefixes, definitions, statements, codes: codes.conforming }, report)
   for (const doc of docs.filter(d => d.front?.type === 'rfc')) checkRfc(doc, statements, report)
   checkRfcIndex(docs, report)
+  checkRfcNumbers(docs, report)
   const cache = new Map()
   for (const doc of docs.filter(d => d.front?.type !== 'workflow')) checkLinks(doc, cache, report)
   return { report, docs, statements, codes, levels: levels ?? [] }

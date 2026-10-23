@@ -145,6 +145,31 @@ describe('check-docs', () => {
     assert.deepEqual(rules(unlisted), ['rfc: 0001-cleanup.md is not listed'])
   })
 
+  test('each RFC directory of a project with several has its own index', () => {
+    const rfcsIndex = (row) => `---\ntype: rfc-index\n---\n\n# RFCs\n\n| RFC | Title |\n| :-- | :-- |\n${row}`
+    const split = {
+      'docs/README.md': '---\ntype: docs-index\nworkflow: 1.0.0\nlevels: [unit, e2e]\n---\n\n# Docs\n\n[store](architecture/store/README.md), [api](api/rfcs/README.md), [web](web/rfcs/README.md)\n',
+      'docs/rfcs/README.md': null,
+      'docs/rfcs/0001-cleanup.md': null,
+      'docs/api/rfcs/README.md': rfcsIndex('| [0001](0001-cleanup.md) | Cleanup |\n'),
+      'docs/api/rfcs/0001-cleanup.md': RFC,
+      'docs/web/rfcs/README.md': rfcsIndex('| [0002](0002-cleanup.md) | Cleanup |\n'),
+      'docs/web/rfcs/0002-cleanup.md': edit(RFC, 'number: 1', 'number: 2')
+    }
+    assert.deepEqual(rules(project(split)), [])
+    assert.deepEqual(rules(project({ ...split, 'docs/web/rfcs/README.md': rfcsIndex('') })), ['rfc: 0002-cleanup.md is not listed'])
+    assert.ok(rules(project({ ...split, 'docs/web/rfcs/README.md': null })).includes('rfc: README.md with type rfc-index is missing in this directory'))
+  })
+
+  test('an RFC number used twice is a warning', () => {
+    const twice = {
+      'docs/rfcs/README.md': '---\ntype: rfc-index\n---\n\n# RFCs\n\n| RFC | Title |\n| :-- | :-- |\n| [0001](0001-cleanup.md) | Cleanup |\n| [0001](0001-other.md) | Other |\n',
+      'docs/rfcs/0001-other.md': RFC
+    }
+    const warnings = run(project(twice)).filter(e => e.level === 'warning' && e.rule === 'rfc').map(e => e.message)
+    assert.deepEqual(warnings, ['number 1 is also used by 0001-cleanup.md'])
+  })
+
   test('a document that does not conform yet is only a warning', () => {
     const legacy = '---\ntype: architecture\ntitle: Old\nconforms: false\n---\n\n# Old\n\nFree-form text with D1 and F2.\n'
     const entries = run(project({ 'docs/architecture/old.md': legacy }))
