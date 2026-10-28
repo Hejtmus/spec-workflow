@@ -17,6 +17,7 @@ import { analyze, createReport, printReport, sectionLines, CHANGE } from './chec
 
 const KIND_LEVEL = { editorial: 0, compatible: 1, added: 2, breaking: 3 }
 const FIRST_CHECKED_WORKFLOW = '3.0.0'
+const LANDED_STATUSES = ['auditing', 'implemented']
 const MANIFESTS = new Set(['package.json', 'Cargo.toml', 'VERSION'])
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/
 
@@ -150,7 +151,7 @@ function rfcKinds (doc) {
   return new Map(items.map(item => CHANGE.exec(String(item))).filter(Boolean).map(([, id, kind]) => [id, kind]))
 }
 
-/** An implemented RFC with what the release checks need: the statements it names, their kinds, its packages. */
+/** An auditing or implemented RFC with what the release checks need: the statements it names, their kinds, its packages. */
 function describeRfc (doc, statementIds, context) {
   const kinds = rfcKinds(doc)
   const text = doc.lines.join('\n')
@@ -159,10 +160,11 @@ function describeRfc (doc, statementIds, context) {
   return { doc, number: doc.front.number, title: doc.front.title, summary: rfcSummary(doc), kinds, named, packages: owners.length > 0 ? new Set(owners) : 'all' }
 }
 
-function implementedRfcs (context) {
+/** RFCs whose code has landed (WORKFLOW §8.2, §11.3). */
+function landedRfcs (context) {
   const ids = [...context.head.statements.keys()]
   return context.head.docs
-    .filter(d => d.front?.type === 'rfc' && d.front.status === 'implemented' && Array.isArray(d.front.commits))
+    .filter(d => d.front?.type === 'rfc' && LANDED_STATUSES.includes(d.front.status) && Array.isArray(d.front.commits))
     .map(d => describeRfc(d, ids, context))
 }
 
@@ -292,7 +294,7 @@ function checkRelease (docsDir) {
   }
   const packages = readPackages(root)
   const context = { root, docsDir, docsPath: relative(root, resolve(docsDir)), head: analyze(docsDir), packages, publishable: packages.filter(p => !p.private), tags: listTags(root), baselines: new Map(), unclassified: new Set(), report }
-  context.rfcs = implementedRfcs(context)
+  context.rfcs = landedRfcs(context)
   const plan = context.publishable.map(pkg => planPackage(pkg, context)).filter(Boolean)
   const pending = new Set(plan.map(entry => entry.name))
   return { report, plan, packages: context.publishable.map(p => ({ name: p.name, version: p.version, released: !pending.has(p.name) })) }

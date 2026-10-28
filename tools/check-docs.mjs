@@ -23,13 +23,14 @@ const DESIGN_SECTIONS = {
 const CRITIQUE_PARAGRAPHS = ['**Pros**', '**Cons & trade-offs**', '**Blindspots & missed edge cases**']
 const KEYS = {
   workflow: { required: ['version'], optional: [] },
-  'docs-index': { required: ['workflow', 'levels'], optional: ['sources'] },
+  'docs-index': { required: ['workflow', 'levels'], optional: ['sources', 'audit-from'] },
   architecture: { required: ['title', 'codes', 'verified'], optional: ['prefix', 'conforms'] },
   'architecture-index': { required: ['title', 'prefix', 'codes', 'verified'], optional: ['conforms'] },
   'rfc-index': { required: [], optional: [] },
-  rfc: { required: ['number', 'title', 'status', 'commit-subject'], optional: ['commits', 'depends', 'architecture', 'sections', 'changes'] }
+  rfc: { required: ['number', 'title', 'status', 'commit-subject'], optional: ['commits', 'depends', 'architecture', 'sections', 'changes', 'audit'] }
 }
-const RFC_STATUSES = ['draft', 'implemented', 'withdrawn']
+const RFC_STATUSES = ['draft', 'auditing', 'implemented', 'withdrawn']
+const WITH_COMMITS = ['auditing', 'implemented']
 const STATEMENT_HEADING = /^(~~)?([A-Z]+)-(\d+) · (.+?)(~~)?$/
 const STATE_VALUE = /^(new \((RFC-\d{4}|no RFC yet)\)|removed \(RFC-\d{4}\))$/
 const TEST_FILES = /^`[^`]+`(, `[^`]+`)*$/
@@ -153,7 +154,7 @@ function checkArchitectureKeys (doc, report) {
 function checkRfcKeys (doc, report) {
   const f = doc.front
   if (!RFC_STATUSES.includes(f.status)) report.error(doc.path, 1, 'rfc', `status must be one of ${RFC_STATUSES.join(', ')}`)
-  if (f.status === 'implemented' && !(Array.isArray(f.commits) && f.commits.length > 0)) report.error(doc.path, 1, 'rfc', 'an implemented RFC lists its commits')
+  if (WITH_COMMITS.includes(f.status) && !(Array.isArray(f.commits) && f.commits.length > 0)) report.error(doc.path, 1, 'rfc', 'an auditing or implemented RFC lists its commits')
   if (f.sections !== undefined && f.sections !== 'legacy') report.error(doc.path, 1, 'rfc', 'sections may only be legacy')
   const expected = Number(basename(doc.path).slice(0, 4))
   if (f.number !== expected) report.error(doc.path, 1, 'rfc', `number ${f.number} does not match the file name (${expected})`)
@@ -189,6 +190,16 @@ function declaredLevels (docs, report) {
     return null
   }
   return levels.map(String)
+}
+
+/** The `audit-from` of docs/README.md (WORKFLOW §8.2); `null` when audits are not checked. */
+function auditFrom (docs, report) {
+  const index = docs.find(d => d.front?.type === 'docs-index')
+  if (index === undefined) return null
+  const from = index.front['audit-from']
+  if (from === undefined) { report.warning(index.path, 1, 'front-matter', 'audit-from is not set: the audits of implemented RFCs are not checked (WORKFLOW §8.2)'); return null }
+  if (!Number.isInteger(from) || from < 1) { report.error(index.path, 1, 'front-matter', 'audit-from must be an RFC number'); return null }
+  return from
 }
 
 function checkWorkflowVersion (docs, report) {
@@ -579,9 +590,24 @@ function checkChanges (doc, statements, report) {
   }
 }
 
-function checkRfc (doc, statements, report) {
+const isVerification = (id) => /S\d+[a-z]?$/.test(id)
+
+/** Each item of `audit` is a defined Verification entry; an implemented RFC from `audit-from` on has one (WORKFLOW §8.2). */
+function checkAudit (doc, definitions, from, report) {
+  const audit = doc.front.audit
+  if (audit !== undefined && !Array.isArray(audit)) return report.error(doc.path, 1, 'rfc', 'audit must be a list')
+  for (const id of (audit ?? []).map(String)) {
+    if (!isDefined(definitions, id)) report.error(doc.path, 1, 'rfc', `audit ${id} is not defined`)
+    else if (!isVerification(id)) report.error(doc.path, 1, 'rfc', `audit ${id} is not a Verification entry`)
+  }
+  const required = from !== null && doc.front.status === 'implemented' && doc.front.number >= from
+  if (required && (audit ?? []).length === 0) report.error(doc.path, 1, 'rfc', 'an implemented RFC names its falsification audit in audit (WORKFLOW §8.2)')
+}
+
+function checkRfc (doc, context, report) {
   if (doc.front.sections !== 'legacy') { checkRfcSections(doc, report); checkRfcCritique(doc, report) }
-  checkChanges(doc, statements, report)
+  checkChanges(doc, context.statements, report)
+  checkAudit(doc, context.definitions, context.auditFrom, report)
   checkCommits(doc, report)
 }
 
@@ -605,7 +631,8 @@ function analyze (docsDir) {
   const { prefixes, definitions } = checkIds(docs, statements, report)
   const codes = declaredCodes(docs)
   checkSourceReferences(root, resolve(docsDir), sourcesOf(docs, root, report), { prefixes, definitions, statements, codes: codes.conforming }, report)
-  for (const doc of docs.filter(d => d.front?.type === 'rfc')) checkRfc(doc, statements, report)
+  const rfcContext = { statements, definitions, auditFrom: auditFrom(docs, report) }
+  for (const doc of docs.filter(d => d.front?.type === 'rfc')) checkRfc(doc, rfcContext, report)
   checkRfcIndex(docs, report)
   checkRfcNumbers(docs, report)
   const cache = new Map()

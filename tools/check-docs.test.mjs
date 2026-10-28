@@ -1,6 +1,6 @@
 import { test, describe, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { check, slug, parseFrontMatter } from './check-docs.mjs'
@@ -130,11 +130,46 @@ describe('check-docs', () => {
   test('an implemented RFC names commits in the history of HEAD', () => {
     const root = project()
     const { ancestor, outside } = gitRepository(root)
-    const implement = (commits) => writeFileSync(join(root, 'docs/rfcs/0001-cleanup.md'), edit(RFC, 'status: draft\ncommits: []', `status: implemented\ncommits: [${commits}]`))
+    const implement = (commits) => writeFileSync(join(root, 'docs/rfcs/0001-cleanup.md'), edit(RFC, 'status: draft\ncommits: []', `status: implemented\ncommits: [${commits}]\naudit: [XS1]`))
     implement(ancestor)
     assert.deepEqual(rules(root), [])
     implement(`deadbee, ${outside}`)
     assert.deepEqual(rules(root), ['rfc: commit deadbee is not known to git', `rfc: commit ${outside} is not in the history of HEAD: squashed or rebased? (WORKFLOW §8.3)`])
+  })
+
+  test('an auditing RFC names its commits', () => {
+    const root = project()
+    const { ancestor } = gitRepository(root)
+    const audit = (commits) => writeFileSync(join(root, 'docs/rfcs/0001-cleanup.md'), edit(RFC, 'status: draft\ncommits: []', `status: auditing\ncommits: [${commits}]`))
+    audit('')
+    assert.deepEqual(rules(root), ['rfc: an auditing or implemented RFC lists its commits'])
+    audit(ancestor)
+    assert.deepEqual(rules(root), [])
+  })
+
+  test('an implemented RFC from audit-from on names the Verification entries of its audit', () => {
+    const root = project()
+    const { ancestor } = gitRepository(root)
+    const implement = (audit) => writeFileSync(join(root, 'docs/rfcs/0001-cleanup.md'), edit(RFC, 'status: draft\ncommits: []', `status: implemented\ncommits: [${ancestor}]${audit}`))
+    implement('')
+    assert.deepEqual(rules(root), ['rfc: an implemented RFC names its falsification audit in audit (WORKFLOW §8.2)'])
+    implement('\naudit: []')
+    assert.deepEqual(rules(root), ['rfc: an implemented RFC names its falsification audit in audit (WORKFLOW §8.2)'])
+    implement('\naudit: [XS1, XD1, XS9]')
+    assert.deepEqual(rules(root), ['rfc: audit XD1 is not a Verification entry', 'rfc: audit XS9 is not defined'])
+    writeFileSync(join(root, 'docs/README.md'), readFileSync(join(root, 'docs/README.md'), 'utf-8').replace('audit-from: 1', 'audit-from: 2'))
+    implement('')
+    assert.deepEqual(rules(root), [])
+  })
+
+  test('without audit-from, audits are not checked, and a warning says so', () => {
+    const index = '---\ntype: docs-index\nworkflow: 1.0.0\nlevels: [unit, e2e]\n---\n\n# Docs\n\n[store](architecture/store/README.md), [rfcs](rfcs/README.md)\n'
+    const root = project({ 'docs/README.md': index })
+    const { ancestor } = gitRepository(root)
+    writeFileSync(join(root, 'docs/rfcs/0001-cleanup.md'), edit(RFC, 'status: draft\ncommits: []', `status: implemented\ncommits: [${ancestor}]`))
+    assert.deepEqual(run(root).map(e => `${e.level}: ${e.rule}: ${e.message}`), ['warning: front-matter: audit-from is not set: the audits of implemented RFCs are not checked (WORKFLOW §8.2)'])
+    const invalid = project({ 'docs/README.md': edit(index, 'levels: [unit, e2e]', 'levels: [unit, e2e]\naudit-from: soon') })
+    assert.deepEqual(rules(invalid), ['front-matter: audit-from must be an RFC number'])
   })
 
   test('RFC sections are required unless legacy, and every RFC is listed', () => {

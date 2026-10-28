@@ -36,18 +36,18 @@ function releasedProject (workflow = '3.0.0') {
   return root
 }
 
-function rfcFor (commit, changes, summary) {
-  const implemented = edit(edit(RFC, 'number: 1', 'number: 2'), 'status: draft\ncommits: []', `status: implemented\ncommits: [${commit}]\nchanges: [${changes}]`)
+function rfcFor (commit, changes, summary, status) {
+  const implemented = edit(edit(RFC, 'number: 1', 'number: 2'), 'status: draft\ncommits: []', `status: ${status}\ncommits: [${commit}]\nchanges: [${changes}]`)
   return edit(edit(implemented, 'Implements SEC-2 (XD1).', summary), '## Files\n\nNone.', '## Files\n\n| File | Change |\n| :-- | :-- |\n| `packages/secrets/src/index.ts` | change |')
 }
 
 /** Changes the Specification to `component` in the secrets package, through an RFC unless `rfc` is false. */
-function change (root, { component, changes = '', summary = 'Changes the secrets.', rfc = true }) {
+function change (root, { component, changes = '', summary = 'Changes the secrets.', rfc = true, status = 'implemented' }) {
   write(root, 'docs/architecture/store/secrets.md', component)
   write(root, 'packages/secrets/src/index.ts', 'export const changed = 1\n')
   const commit = commitAll(root, 'feat: change the secrets')
   if (!rfc) return
-  write(root, 'docs/rfcs/0002-change.md', rfcFor(commit, changes, summary))
+  write(root, 'docs/rfcs/0002-change.md', rfcFor(commit, changes, summary, status))
   commitAll(root, 'docs: implemented')
 }
 
@@ -111,6 +111,13 @@ describe('check-release', () => {
     const documented = releasedProject()
     change(documented, { component: ADDED, rfc: false })
     assert.deepEqual(release(documented, '1.2.1').entries, [])
+  })
+
+  test('an RFC still being audited counts for the release impact', () => {
+    const root = releasedProject()
+    change(root, { component: ADDED, summary: 'Adds SEC-3.', status: 'auditing' })
+    assert.deepEqual(release(root, '1.2.1').entries, ['error: @x/secrets 1.2.1 is too low for the statement changes since @x/secrets@1.2.0, the largest of them added'])
+    assert.deepEqual(release(root, '1.3.0').entries, [])
   })
 
   test('a released version plans nothing, a lower one is an error, and private packages are left out', () => {
