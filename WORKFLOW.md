@@ -1,6 +1,6 @@
 ---
 type: workflow
-version: 3.2.0
+version: 3.3.0
 ---
 
 # Spec Workflow
@@ -31,8 +31,8 @@ described in RFC 2119 and RFC 8174 when, and only when, they appear in capitals.
    Every link between that text and the code is checked either mechanically or by an agent that did
    not write the code (§6.3).
 4. **Architecture documents hold the current state. RFCs are history.** An RFC is a planned change.
-   Once implemented, it is frozen, and every behavior-relevant detail it introduced lives in a
-   Specification.
+   Once implemented and audited, it is frozen, and every behavior-relevant detail it introduced lives
+   in a Specification.
 5. **Discovery rule.** When implementation meets a reality the documents did not foresee, the agent
    stops. The architecture document and the RFC are corrected first. The agent never writes an ad-hoc
    workaround.
@@ -49,7 +49,7 @@ described in RFC 2119 and RFC 8174 when, and only when, they appear in capitals.
 | RFC | collaborative; the author reviews its test descriptions | elaborate in full technical detail under the author's guidance |
 | Tests | — | written from the Specification and the RFC, SHOULD be by an agent that has not seen the implementation (§8.2) |
 | Code | — | implement RFCs exactly as written |
-| Falsification audits | — | an agent that did not write the code (§6.3) |
+| Falsification audits | — | an agent that did not write the code, before the RFC is implemented (§6.3, §8.2) |
 
 An agent that needs a decision of the author asks the author and waits for the answer. It does not
 write the question into a document, and does not commit it. The answer goes into the document with
@@ -94,11 +94,11 @@ Every document starts with front matter: `---` lines around `key: value` pairs. 
 
 | `type` | Keys |
 | :-- | :-- |
-| `docs-index` | `workflow`: the version of this file that the project follows; `levels`: the test levels of the project, such as `[unit, integration, e2e]` (§6.2); `sources`: the directories, from the repository root, whose files are checked for references (§6.4) |
+| `docs-index` | `workflow`: the version of this file that the project follows; `levels`: the test levels of the project, such as `[unit, integration, e2e]` (§6.2); `sources`: the directories, from the repository root, whose files are checked for references (§6.4); `audit-from`: the number of the first RFC whose `audit` is required (§8.2) |
 | `architecture` | `title`; `prefix`: the ID prefix, unique in the project; `codes`: statement codes, unique in the project; `verified`: the commit at which the *current* text was last checked against the code; `conforms`: `false` only for a document written before the project adopted the workflow |
 | `architecture-index` | the same keys as `architecture`. The directory's documents share its `prefix` and its register. |
 | `rfc-index` | none: the list of the RFCs in its directory, `rfcs/README.md` |
-| `rfc` | `number`; `title`; `status`: `draft`, `implemented` or `withdrawn`; `commits`: the implementing commits, required when `implemented`; `depends`: RFC numbers; `architecture`: the documents it changes; `commit-subject`: the commit message subject; `sections`: `legacy` only for an RFC written before the project adopted the workflow; `changes`: the kind of each statement change it makes, `[SEC-4 breaking, SEC-2 editorial]` (§11.3) |
+| `rfc` | `number`; `title`; `status`: `draft`, `auditing`, `implemented` or `withdrawn` (§8.2); `commits`: the implementing commits, required when `auditing` or `implemented`; `audit`: the Verification entries that record its falsification audits, required when `implemented` (§8.2); `depends`: RFC numbers; `architecture`: the documents it changes; `commit-subject`: the commit message subject; `sections`: `legacy` only for an RFC written before the project adopted the workflow; `changes`: the kind of each statement change it makes, `[SEC-4 breaking, SEC-2 editorial]` (§11.3) |
 
 A document in a directory (`architecture/<subject>/<component>.md`) takes `prefix` from its index
 and declares only `title`, `codes` and `verified`.
@@ -193,7 +193,7 @@ Every other failure propagates unchanged.
 ### 6.2 Tests
 
 - A test that checks a statement carries the statement's ID in its own title, for example `it('SEC-4: reads a missing secret as undefined', …)`. A test that checks several statements carries each ID.
-- `- Test:` names the files that hold those tests, by path from the repository root. The documentation checker confirms that each file exists and contains the ID. A new statement keeps `none yet` until its RFC is implemented, even when its tests are written first.
+- `- Test:` names the files that hold those tests, by path from the repository root. The documentation checker confirms that each file exists and contains the ID. A new statement keeps `none yet` until its RFC's code is committed, even when its tests are written first.
 - **A statement is tested at the boundary it describes.** A mock of what the statement is about proves nothing about it. The level follows from the statement:
   - a statement about the contract of a function or module: a **unit** test through its public interface;
   - a statement about components working together, or about storage, a network or a file system: an **integration** test with the real collaborators;
@@ -221,10 +221,13 @@ by something other than the agent that wrote the code:
 
 **Falsification audit.** An agent that did not write the code is given a statement, its tests and
 the code. It tries to change the code so that the code violates the statement while every test still
-passes. A counterexample it finds is a Finding, stated in terms of behavior, and the tests are
-strengthened through an RFC. The audit also reports a statement too vague to falsify. Each audit is
-recorded as a Verification entry with its commit and the statements it covered. An audit SHOULD run
-for every statement an RFC adds or changes, and during drift audits.
+passes. A counterexample it finds is a Finding, stated in terms of behavior. The audit also reports
+a statement too vague to falsify. Each audit is recorded as a Verification entry with its commit and
+the statements it covered.
+
+An audit MUST run for every statement an RFC adds or changes, before the RFC is implemented. Its
+findings are fixed by amending that RFC (§8.2). An audit SHOULD also run during drift audits, and
+their findings are fixed through a new RFC.
 
 The remaining trust is in the auditor. It is reduced by running the audit in a separate session,
 preferably on a different model. The author's occasional reading of code is a sample that shows how
@@ -305,17 +308,24 @@ Its `##` sections, in order: `Summary`, `Files`, `Specification`, `Non-goals`, `
 
 1. **Draft.** The architecture document marks the target statements **New** with `State: new (RFC-NNNN)`, and the RFC specifies the change.
 2. **Tests.** An agent session that has not seen the implementation SHOULD write the RFC's tests from the Specification and the RFC, before the code. They are marked as expected failures (for example `it.fails`), so the test suite still passes.
-3. **Implementation.** The agent follows the RFC. It removes the expected-failure markers and does not change what a test asserts. A contradiction with reality, including a test that turns out to be wrong, is corrected in the RFC, and in the architecture document if needed, **before** the code is committed (discovery rule).
-4. **Implemented.** `status: implemented` with `commits`. The architecture document drops the markers, names the test files, and updates `verified`. From now on the RFC is **frozen**: its content is never edited again. A change of layout (§3) MAY
+3. **Implementation.** The agent follows the RFC. It removes the expected-failure markers and does not change what a test asserts. A contradiction with reality, including a test that turns out to be wrong, is corrected in the RFC, and in the architecture document if needed, **before** the code is committed (discovery rule). The architecture document then drops the markers, names the test files, and updates `verified`. The RFC gets `status: auditing` with `commits`.
+4. **Audit.** An agent that did not write the code runs a falsification audit (§6.3) of every statement the RFC adds or changes. Each counterexample is a Finding of the architecture document.
+5. **Amendment.** An open finding of the audit is fixed in the same RFC, edited in place. Its Summary names the finding, and its Specification, `changes`, Tests, Steps and Critique change to cover the fix. The fix goes through steps 2 and 3 like the rest of the RFC: its tests are written first, its code is committed on its own, and its commits are added to `commits`. The statements it adds or changes are audited again (step 4).
+6. **Implemented.** When no finding of the RFC's audits is open, or the author accepts each one that is, the RFC gets `status: implemented` and `audit`, the Verification entries of its audits. An accepted finding keeps its row, with its state saying it is accepted. From now on the RFC is **frozen**: its content is never edited again. A change of layout (§3) MAY
    move it, and then rewrites only its relative links and the paths that name moved documents, in its
    front matter and its text, so they resolve again. The move is committed on its own.
-5. A later change is a new RFC that references the old one.
+7. A later change is a new RFC that references the old one.
+
+`audit` is required from the RFC that `docs/README.md` names in `audit-from` on. The RFCs before it
+were frozen without one, and are not edited to add it.
 
 ### 8.3 Commits
 
 Documents and code are committed separately, in this order: the architecture change, the RFC, the
 tests when they are written first, the code, and then the architecture document's update to current.
-Each commit passes the checker, the build and the tests.
+An amendment (§8.2) repeats that order: the RFC and the findings, the tests, the code, and the
+architecture document. The audit's Verification entry and its findings, and the RFC's `implemented`,
+are documents commits. Each commit passes the checker, the build and the tests.
 
 An agent commits, merges or pushes only with the author's approval of that commit. It prepares the
 change and its message, and waits.
@@ -328,11 +338,11 @@ checks out the full history.
 
 `check-docs.mjs` checks, and exits non-zero on any error:
 
-1. front matter: types, required keys, enums, unique prefixes and codes, the workflow version against `docs/WORKFLOW.md`;
+1. front matter: types, required keys, enums, unique prefixes and codes, the workflow version against `docs/WORKFLOW.md`, `audit-from` an RFC number, and, as a warning, `audit-from` not set;
 2. structure: the `#` title, the `##` parts and required `###` sections in order;
 3. statements: heading format, a code the document declares, no duplicates, the form of the `Test:` line, a `Level:` line naming declared levels, each named test file existing and containing the ID, valid `State:` values, `none yet` only for **New** statements;
 4. IDs: defined once, every mention defined, registers complete and not stale;
-5. RFCs: file name against `number`, required sections and critique paragraphs unless `sections: legacy`, each item of `changes` naming a defined statement and a kind, `commits` present and in the history of `HEAD` when `implemented`, every RFC listed in the `rfcs/README.md` of its directory, and, as a warning, an RFC number used twice;
+5. RFCs: file name against `number`, required sections and critique paragraphs unless `sections: legacy`, each item of `changes` naming a defined statement and a kind, `commits` present and in the history of `HEAD` when `auditing` or `implemented`, each item of `audit` a defined Verification entry, `audit` present when `implemented` and numbered from `audit-from` on, every RFC listed in the `rfcs/README.md` of its directory, and, as a warning, an RFC number used twice;
 6. links: every relative link resolves to a file, and every `#anchor` to a heading;
 7. references from code: when `sources` is set, every ID and statement named in a tracked source file is defined, and no named statement is removed (§6.4).
 
@@ -368,6 +378,7 @@ JUnit XML, writes the verification record (§11.2), and exits non-zero unless ev
 - **From 2.x to 3.0:** declare the project's `levels` in `docs/README.md`, give every statement that is not removed a `- Level:` line, and label each JUnit report with its level. Release impact is checked from the first release whose baseline follows 3.0.0 (§11.5).
 - **From 3.0 to 3.1:** no document changes. Agents ask the author instead of writing questions into documents (§2), and commit only with the author's approval (§8.3).
 - **From 3.1 to 3.2:** no document changes. A repository with several projects MAY split its documents per project (§3); moving a frozen RFC rewrites only its links and paths (§8.2).
+- **From 3.2 to 3.3:** an RFC whose code is committed is `auditing` until its falsification audit finds nothing open; the audit's findings are fixed by amending the same RFC, and the RFC is then `implemented` with `audit` (§8.2). Set `audit-from` in `docs/README.md` to the number of the first RFC not yet implemented. An RFC implemented before it keeps its text. Until `audit-from` is set, the checker warns.
 - **Versioning:** this file follows semantic versioning. A change that makes a conforming project fail a checker is a major version.
 
 ## 11. Integration and release
@@ -440,8 +451,8 @@ Two kinds of version are exempt, and need only be higher than the previous one:
 - A statement is **added** when it is current now and was not current at the baseline. It is
   **changed** when its text, without its `Test:`, `State:` and `Level:` lines, differs from the baseline. It
   is **removed** when it is struck through or gone now, and was current at the baseline.
-- The RFCs **since the baseline** are the implemented RFCs with a commit outside the history of the
-  baseline tag. An RFC **names** a statement when its `changes` or its text mention the statement.
+- The RFCs **since the baseline** are the auditing and implemented RFCs with a commit outside the
+  history of the baseline tag. An RFC **names** a statement when its `changes` or its text mention the statement.
 - A changed or removed statement MUST be classified in the `changes` of an RFC since the baseline.
   An added statement has the kind `added` unless one classifies it otherwise. An added statement
   that no RFC since the baseline names documents existing behavior, and has no impact.
@@ -465,7 +476,7 @@ Two kinds of version are exempt, and need only be higher than the previous one:
 - A release tag is never moved or deleted. A bad release is followed by a new version.
 - The verification record is attached to the release. The published packages and the record SHOULD
   carry signed build provenance, such as npm provenance or an artifact attestation.
-- The release notes of a package are the titles and summaries of the RFCs implemented since its
+- The release notes of a package are the titles and summaries of the RFCs since its
   baseline that affect it.
 
 ### 11.5 Adoption

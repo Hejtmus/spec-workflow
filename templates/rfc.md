@@ -4,6 +4,7 @@ number: <N>
 title: <Title>
 status: draft
 commits: []
+audit: []
 depends: []
 architecture: [<document>]
 changes: [<CODE>-1 <breaking|compatible|added|editorial>]
@@ -47,7 +48,8 @@ code.
 2. Tests: written from the Specification and this RFC, marked as expected failures, and committed
    before the code, SHOULD be by an agent session that has not seen the implementation.
 3. …: the implementation removes the expected-failure markers and changes no assertion.
-4. Run §Verification.
+4. Run §Verification, and set `status: auditing` with `commits`.
+5. Audit: findings amend this RFC, through steps 2 to 4 again; then `status: implemented` with `audit`.
 
 ## Verification
 
@@ -56,7 +58,8 @@ code.
 ```
 
 A falsification audit of each statement this RFC adds or changes (WORKFLOW §6.3), by an agent that
-did not write the code, recorded as a Verification entry.
+did not write the code, recorded as a Verification entry and named in `audit`. Until it finds nothing
+open, this RFC is `auditing`, and its findings are fixed by amending it (WORKFLOW §8.2).
 
 ## Critique
 
